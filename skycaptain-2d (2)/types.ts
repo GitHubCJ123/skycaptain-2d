@@ -23,11 +23,14 @@ export interface Mission {
   title: string;
   description: string;
   difficulty: 'Easy' | 'Medium' | 'Hard' | 'Extreme';
+  timeOfDay: 'day' | 'night';
+  obstaclesEnabled: boolean;
   weather: {
     windSpeed: number; // knots
-    windDirection: number; // degrees (0 is blowing from right to left in 2D usually, but we'll standardise)
+    windDirection: number; // degrees
     turbulence: number; // 0-1
     visibility: number; // 0-1 (opacity of fog)
+    precipitation: 'none' | 'rain' | 'storm';
   };
   startingConditions: {
     altitude: number;

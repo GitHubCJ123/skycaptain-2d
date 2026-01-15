@@ -3,6 +3,7 @@ import { SimCanvas } from './components/SimCanvas';
 import { Instruments } from './components/Instruments';
 import { Controls } from './components/Controls';
 import { MissionControl } from './components/MissionControl';
+import { Minimap } from './components/Minimap';
 import { FlightState, GameStatus, Mission } from './types';
 import { INITIAL_STATE } from './constants';
 
@@ -53,6 +54,8 @@ const App: React.FC = () => {
             setCurrentTip("⚠️ CRITICAL: Lower landing gear [G] for landing!");
         } else if (speed > 120 && s.flaps > 0) {
              setCurrentTip("💡 TIP: Retract flaps [V] at high speeds to prevent damage.");
+        } else if (s.fuel < 15) {
+             setCurrentTip("⚠️ LOW FUEL: Return to base immediately.");
         } else {
             // Random general tip
             setCurrentTip("ℹ️ " + tips[Math.floor(Math.random() * tips.length)]);
@@ -153,28 +156,36 @@ const App: React.FC = () => {
          )}
          
          {/* Bottom Control Deck */}
-         <div className="absolute bottom-0 left-0 w-full p-6 flex items-end justify-between pointer-events-auto">
-            <Instruments state={flightState} />
-            
-            <div className="flex flex-col items-end gap-2">
-                <button 
-                    onClick={() => setStatus(GameStatus.MENU)}
-                    className="bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded mb-4 font-bold text-xs shadow-lg shadow-red-900/50"
-                >
-                    ABORT MISSION
-                </button>
-                <Controls 
-                    throttle={throttle}
-                    flaps={flaps}
-                    gear={gear}
-                    brakes={brakes}
-                    engineOn={engineOn}
-                    setThrottle={setThrottle}
-                    setFlaps={setFlaps}
-                    toggleGear={() => setGear(!gear)}
-                    toggleBrakes={() => setBrakes(!brakes)}
-                    toggleEngine={() => setEngineOn(!engineOn)}
-                />
+         <div className="absolute bottom-0 left-0 w-full flex items-end justify-between pointer-events-auto">
+            {/* Instruments Dashboard (Centered mostly) */}
+            <div className="flex-1 flex justify-center pb-0">
+                <Instruments state={flightState} />
+            </div>
+
+            {/* Right Side Controls & Map */}
+            <div className="absolute bottom-6 right-6 flex flex-col items-end gap-2">
+                 <Minimap position={flightState.position} rotation={flightState.rotation} />
+                 
+                <div className="flex gap-2 mt-2">
+                    <button 
+                        onClick={() => setStatus(GameStatus.MENU)}
+                        className="bg-red-600 hover:bg-red-500 text-white px-3 py-2 rounded font-bold text-[10px] shadow-lg shadow-red-900/50"
+                    >
+                        ABORT
+                    </button>
+                    <Controls 
+                        throttle={throttle}
+                        flaps={flaps}
+                        gear={gear}
+                        brakes={brakes}
+                        engineOn={engineOn}
+                        setThrottle={setThrottle}
+                        setFlaps={setFlaps}
+                        toggleGear={() => setGear(!gear)}
+                        toggleBrakes={() => setBrakes(!brakes)}
+                        toggleEngine={() => setEngineOn(!engineOn)}
+                    />
+                </div>
             </div>
          </div>
       </div>
