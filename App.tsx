@@ -1,17 +1,23 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { SimCanvas } from './components/SimCanvas';
 import { Instruments } from './components/Instruments';
 import { Controls } from './components/Controls';
 import { MissionControl } from './components/MissionControl';
 import { Minimap } from './components/Minimap';
-import { FlightState, GameStatus, Mission } from './types';
-import { INITIAL_STATE } from './constants';
+import { Hangar } from './components/Hangar';
+import { FlightState, GameStatus, Mission, UserProfile } from './types';
+import { INITIAL_STATE, FUEL_UPGRADES } from './constants';
+import { loadProfile, saveProfile } from './utils/storage';
 
 const App: React.FC = () => {
   const [status, setStatus] = useState<GameStatus>(GameStatus.MENU);
   const [mission, setMission] = useState<Mission | null>(null);
   const [flightState, setFlightState] = useState<FlightState>(INITIAL_STATE);
   
+  // Persistence State
+  const [userProfile, setUserProfile] = useState<UserProfile>(loadProfile());
+
   // React State for Controls (passed into Sim via props for sync)
   const [throttle, setThrottle] = useState(0);
   const [flaps, setFlaps] = useState(0);
@@ -23,9 +29,38 @@ const App: React.FC = () => {
   const [currentTip, setCurrentTip] = useState<string>("");
   const flightStateRef = useRef(flightState); // Ref to access latest state in interval
 
+  // Resolve Max Fuel for UI
+  const maxFuel = FUEL_UPGRADES[userProfile.upgrades.fuelLevel || 0].capacity;
+
+  // Profile saver
+  useEffect(() => {
+    saveProfile(userProfile);
+  }, [userProfile]);
+
   useEffect(() => {
     flightStateRef.current = flightState;
   }, [flightState]);
+
+  // Coin Income Logic
+  useEffect(() => {
+    if (status !== GameStatus.FLYING) return;
+    
+    // Earn 1 coin every 2 seconds of being airborne
+    const incomeInterval = setInterval(() => {
+        const s = flightStateRef.current;
+        const altitude = s.position.y;
+        
+        // If airborne and moving, get salary
+        if (altitude > 10 && !s.crashed && s.engineOn) {
+            setUserProfile(prev => ({
+                ...prev,
+                coins: prev.coins + 1
+            }));
+        }
+    }, 2000);
+
+    return () => clearInterval(incomeInterval);
+  }, [status]);
 
   useEffect(() => {
     if (status !== GameStatus.FLYING) return;
@@ -115,6 +150,7 @@ const App: React.FC = () => {
         mission={mission} 
         onUpdateState={setFlightState} 
         externalControls={{ throttle, flaps, gear, brakes, engineOn }}
+        userProfile={userProfile}
       />
 
       {/* UI Overlay Layer */}
@@ -136,8 +172,18 @@ const App: React.FC = () => {
             </div>
          </div>
 
+         {/* Flight Coins Indicator (Only when flying) */}
+         {status === GameStatus.FLYING && (
+             <div className="absolute top-6 left-48 z-50 opacity-90">
+                 <div className="bg-black/40 backdrop-blur px-3 py-1 rounded-full border border-white/10 flex items-center gap-2">
+                     <div className="w-3 h-3 rounded-full bg-amber-400 shadow-[0_0_5px_#fbbf24]"></div>
+                     <span className="text-amber-400 font-mono font-bold text-xs">{userProfile.coins}</span>
+                 </div>
+             </div>
+         )}
+
          {/* Top Info Bar */}
-         {mission && (
+         {mission && status === GameStatus.FLYING && (
              <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-black/50 backdrop-blur px-6 py-2 rounded-full border border-white/10 text-center">
                 <h2 className="text-white font-bold text-sm">{mission.title}</h2>
                 <div className="flex gap-4 text-xs text-slate-300 mt-1">
@@ -156,38 +202,40 @@ const App: React.FC = () => {
          )}
          
          {/* Bottom Control Deck */}
-         <div className="absolute bottom-0 left-0 w-full flex items-end justify-between pointer-events-auto">
-            {/* Instruments Dashboard (Centered mostly) */}
-            <div className="flex-1 flex justify-center pb-0">
-                <Instruments state={flightState} />
-            </div>
-
-            {/* Right Side Controls & Map */}
-            <div className="absolute bottom-6 right-6 flex flex-col items-end gap-2">
-                 <Minimap position={flightState.position} rotation={flightState.rotation} />
-                 
-                <div className="flex gap-2 mt-2">
-                    <button 
-                        onClick={() => setStatus(GameStatus.MENU)}
-                        className="bg-red-600 hover:bg-red-500 text-white px-3 py-2 rounded font-bold text-[10px] shadow-lg shadow-red-900/50"
-                    >
-                        ABORT
-                    </button>
-                    <Controls 
-                        throttle={throttle}
-                        flaps={flaps}
-                        gear={gear}
-                        brakes={brakes}
-                        engineOn={engineOn}
-                        setThrottle={setThrottle}
-                        setFlaps={setFlaps}
-                        toggleGear={() => setGear(!gear)}
-                        toggleBrakes={() => setBrakes(!brakes)}
-                        toggleEngine={() => setEngineOn(!engineOn)}
-                    />
+         {status === GameStatus.FLYING && (
+             <div className="absolute bottom-0 left-0 w-full flex items-end justify-between pointer-events-auto">
+                {/* Instruments Dashboard (Centered mostly) */}
+                <div className="flex-1 flex justify-center pb-0">
+                    <Instruments state={flightState} maxFuel={maxFuel} />
                 </div>
-            </div>
-         </div>
+
+                {/* Right Side Controls & Map */}
+                <div className="absolute bottom-6 right-6 flex flex-col items-end gap-2">
+                    <Minimap position={flightState.position} rotation={flightState.rotation} />
+                    
+                    <div className="flex gap-2 mt-2">
+                        <button 
+                            onClick={() => setStatus(GameStatus.MENU)}
+                            className="bg-red-600 hover:bg-red-500 text-white px-3 py-2 rounded font-bold text-[10px] shadow-lg shadow-red-900/50"
+                        >
+                            ABORT
+                        </button>
+                        <Controls 
+                            throttle={throttle}
+                            flaps={flaps}
+                            gear={gear}
+                            brakes={brakes}
+                            engineOn={engineOn}
+                            setThrottle={setThrottle}
+                            setFlaps={setFlaps}
+                            toggleGear={() => setGear(!gear)}
+                            toggleBrakes={() => setBrakes(!brakes)}
+                            toggleEngine={() => setEngineOn(!engineOn)}
+                        />
+                    </div>
+                </div>
+             </div>
+         )}
       </div>
 
       {/* CRASHED OVERLAY */}
@@ -217,7 +265,19 @@ const App: React.FC = () => {
 
       {/* Menus */}
       {status === GameStatus.MENU && (
-        <MissionControl onStartMission={handleStartMission} />
+        <MissionControl 
+            onStartMission={handleStartMission} 
+            onOpenHangar={() => setStatus(GameStatus.HANGAR)}
+            userProfile={userProfile}
+        />
+      )}
+
+      {status === GameStatus.HANGAR && (
+          <Hangar 
+            userProfile={userProfile}
+            onUpdateProfile={setUserProfile}
+            onClose={() => setStatus(GameStatus.MENU)}
+          />
       )}
     </div>
   );

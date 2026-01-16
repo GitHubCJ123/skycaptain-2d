@@ -1,11 +1,14 @@
+
 import React, { useState } from 'react';
-import { Mission } from '../types';
+import { Mission, UserProfile } from '../types';
 
 interface MissionControlProps {
   onStartMission: (mission: Mission) => void;
+  onOpenHangar: () => void;
+  userProfile: UserProfile;
 }
 
-export const MissionControl: React.FC<MissionControlProps> = ({ onStartMission }) => {
+export const MissionControl: React.FC<MissionControlProps> = ({ onStartMission, onOpenHangar, userProfile }) => {
   const [obstaclesEnabled, setObstaclesEnabled] = useState(false);
 
   const handleStartFree = () => {
@@ -106,7 +109,22 @@ export const MissionControl: React.FC<MissionControlProps> = ({ onStartMission }
 
   return (
     <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="w-full max-w-5xl bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-8 text-center">
+      <div className="w-full max-w-5xl bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-8 text-center relative">
+        
+        {/* Top Right Coins */}
+        <div className="absolute top-8 right-8 flex flex-col items-end gap-2">
+            <div className="bg-amber-900/30 border border-amber-600/50 px-4 py-2 rounded-full flex items-center gap-2">
+                <div className="w-4 h-4 rounded-full bg-amber-400 shadow-[0_0_8px_#fbbf24]"></div>
+                <span className="text-amber-400 font-mono font-bold">{userProfile.coins} COINS</span>
+            </div>
+            <button 
+                onClick={onOpenHangar}
+                className="bg-purple-600 hover:bg-purple-500 text-white font-bold px-6 py-2 rounded-lg shadow-lg shadow-purple-900/50 transition-all transform hover:scale-105"
+            >
+                OPEN HANGAR ✈️
+            </button>
+        </div>
+
         <h1 className="text-4xl font-bold text-white mb-2 tracking-tight">SkyCaptain <span className="text-sky-400">2D</span></h1>
         <p className="text-slate-400 mb-6">Flight Simulator</p>
 

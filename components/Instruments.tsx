@@ -1,8 +1,10 @@
+
 import React from 'react';
 import { FlightState } from '../types';
 
 interface InstrumentsProps {
   state: FlightState;
+  maxFuel: number;
 }
 
 const rotate = (deg: number) => ({ transform: `rotate(${deg}deg)`, transformOrigin: 'center' });
@@ -21,7 +23,7 @@ const GaugeCircle: React.FC<{
     </div>
 );
 
-export const Instruments: React.FC<InstrumentsProps> = ({ state }) => {
+export const Instruments: React.FC<InstrumentsProps> = ({ state, maxFuel }) => {
   // Conversions
   const altFeet = state.position.y * 3.28084;
   const speedKnots = Math.sqrt(state.velocity.x ** 2 + state.velocity.y ** 2) * 1.94384;
@@ -30,6 +32,9 @@ export const Instruments: React.FC<InstrumentsProps> = ({ state }) => {
   // RPM approximation (max 2700 for C172)
   const rpm = state.engineOn ? (800 + state.throttle * 1700) : 0; 
   
+  // Fuel Percentage
+  const fuelPercent = (state.fuel / maxFuel) * 100;
+
   return (
     <div className="flex items-end gap-2 p-3 bg-slate-900 border-t border-slate-700 shadow-2xl pointer-events-none select-none rounded-t-xl">
       
@@ -138,11 +143,11 @@ export const Instruments: React.FC<InstrumentsProps> = ({ state }) => {
               <span className="text-[8px] text-slate-500 mb-0.5">FUEL</span>
               <div className="w-2 flex-1 bg-slate-800 rounded-full relative overflow-hidden border border-slate-600">
                   <div 
-                    className={`absolute bottom-0 w-full transition-all duration-500 ${state.fuel < 20 ? 'bg-red-500 animate-pulse' : 'bg-white'}`} 
-                    style={{ height: `${Math.min(state.fuel, 100)}%` }}
+                    className={`absolute bottom-0 w-full transition-all duration-500 ${fuelPercent < 20 ? 'bg-red-500 animate-pulse' : 'bg-white'}`} 
+                    style={{ height: `${Math.min(fuelPercent, 100)}%` }}
                   ></div>
               </div>
-              <span className="text-[8px] text-white mt-0.5">{Math.min(state.fuel, 100).toFixed(0)}%</span>
+              <span className="text-[8px] text-white mt-0.5">{Math.min(fuelPercent, 100).toFixed(0)}%</span>
           </div>
           
           {/* Oil Temp */}

@@ -1,3 +1,4 @@
+
 export interface Vector2 {
   x: number;
   y: number;
@@ -51,8 +52,40 @@ export interface SimulationParams {
 
 export enum GameStatus {
   MENU,
+  HANGAR,
   BRIEFING,
   FLYING,
   CRASHED,
   SUCCESS,
+}
+
+export interface UserProfile {
+  coins: number;
+  upgrades: {
+    engineLevel: number; // Currently equipped
+    aeroLevel: number;
+    fuelLevel: number;
+    gearLevel: number;
+    weightLevel: number;
+    hydraulicsLevel: number;
+    
+    // Max unlocked levels
+    unlockedEngine: number;
+    unlockedAero: number;
+    unlockedFuel: number;
+    unlockedGear: number;
+    unlockedWeight: number;
+    unlockedHydraulics: number;
+
+    liveryId: string;
+    smokeId: string;
+  };
+}
+
+export interface UnlockableItem {
+  id: string;
+  name: string;
+  type: 'livery' | 'smoke';
+  cost: number;
+  value: string; // Hex code or rgba
 }

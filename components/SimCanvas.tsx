@@ -1,6 +1,7 @@
+
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { FlightState, Mission, Vector2 } from '../types';
-import { DEFAULT_PARAMS, WORLD_SCALE, INITIAL_STATE, RUNWAY_START_X, RUNWAY_LENGTH } from '../constants';
+import { FlightState, Mission, Vector2, UserProfile } from '../types';
+import { DEFAULT_PARAMS, WORLD_SCALE, INITIAL_STATE, RUNWAY_START_X, RUNWAY_LENGTH, ENGINE_UPGRADES, AERO_UPGRADES, FUEL_UPGRADES, GEAR_UPGRADES, WEIGHT_UPGRADES, HYDRAULICS_UPGRADES, LIVERIES, SMOKE_COLORS } from '../constants';
 
 interface SimCanvasProps {
   mission: Mission | null;
@@ -12,6 +13,7 @@ interface SimCanvasProps {
       brakes: boolean;
       engineOn: boolean;
   };
+  userProfile: UserProfile;
 }
 
 interface Particle {
@@ -39,7 +41,7 @@ interface Obstacle {
     type: 'tower';
 }
 
-export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, externalControls }) => {
+export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, externalControls, userProfile }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const requestRef = useRef<number>(null);
   const stateRef = useRef<FlightState>(JSON.parse(JSON.stringify(INITIAL_STATE)));
@@ -57,6 +59,17 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
   // Camera state
   const cameraRef = useRef<Vector2>({ x: 0, y: 100 });
   const [windowSize, setWindowSize] = useState({ width: window.innerWidth, height: window.innerHeight });
+
+  // Resolve Upgrades
+  const engineStats = ENGINE_UPGRADES[userProfile.upgrades.engineLevel || 0];
+  const aeroStats = AERO_UPGRADES[userProfile.upgrades.aeroLevel || 0];
+  const fuelStats = FUEL_UPGRADES[userProfile.upgrades.fuelLevel || 0];
+  const gearStats = GEAR_UPGRADES[userProfile.upgrades.gearLevel || 0];
+  const weightStats = WEIGHT_UPGRADES[userProfile.upgrades.weightLevel || 0];
+  const hydraulicsStats = HYDRAULICS_UPGRADES[userProfile.upgrades.hydraulicsLevel || 0];
+  
+  const liveryColor = LIVERIES.find(l => l.id === userProfile.upgrades.liveryId)?.value || '#dc2626';
+  const smokeColor = SMOKE_COLORS.find(s => s.id === userProfile.upgrades.smokeId)?.value || 'rgba(200, 200, 200, 0.4)';
 
   // Initialize stars once
   useEffect(() => {
@@ -96,7 +109,7 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
         gear: !mission.startingConditions.airborne,
         throttle: mission.startingConditions.airborne ? 0.7 : 0,
         rotation: mission.startingConditions.airborne ? 0 : 0, // Flat if on ground
-        fuel: 100,
+        fuel: fuelStats.capacity, // Initialize with upgraded capacity
       };
 
       const winW = window.innerWidth;
@@ -138,7 +151,7 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
       boltsRef.current = [];
       lightningFlashRef.current = { intensity: 0 };
     }
-  }, [mission]);
+  }, [mission, fuelStats.capacity]);
 
   // Sync external controls
   useEffect(() => {
@@ -188,7 +201,7 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
           maxLife: 1.0,
           size: type === 'smoke' ? Math.random() * 5 + 2 : Math.random() * 2 + 1,
           color: type === 'smoke' 
-            ? `rgba(200, 200, 200, 0.4)` 
+            ? smokeColor
             : `rgba(255, ${Math.floor(Math.random() * 155) + 100}, 0, 1)`,
           type
       });
@@ -310,6 +323,7 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
     // --- Fuel Consumption & Refueling ---
     const onGround = s.position.y <= 0.1;
     
+    // Upgraded engines might consume slightly more fuel, but let's keep it simple for now
     const consumptionRate = 0.2; 
     
     if (s.engineOn && s.fuel > 0) {
@@ -320,9 +334,10 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
         }
     } else if (onGround && speed < 1.0 && !s.engineOn) {
         // Refuel when stopped on ground with engine off
-        if (s.fuel < 100) {
-            s.fuel += dt * 10.0; // Refuel rate: 10% per second
-            if (s.fuel > 100) s.fuel = 100;
+        const maxFuel = fuelStats.capacity;
+        if (s.fuel < maxFuel) {
+            s.fuel += dt * 10.0; // Refuel rate: 10 units per second
+            if (s.fuel > maxFuel) s.fuel = maxFuel;
         }
     }
 
@@ -336,19 +351,27 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
     const dynamicPressure = 0.5 * currentAirDensity * v2;
 
     // --- Lift & Drag ---
+    // Apply Aero Upgrades to drag coefficient
+    // The base coefficient is modulated heavily by the Aero Level.
+    const currentDragCoeff = DEFAULT_PARAMS.dragCoefficient * aeroStats.dragMod;
+
     const stallAngle = 0.30; 
     let Cl = 0;
-    let Cd = DEFAULT_PARAMS.dragCoefficient;
+    let Cd = currentDragCoeff;
     let pitchMoment = 0;
 
     if (Math.abs(alpha) < stallAngle) {
+        // Normal Flight
         Cl = 2 * Math.PI * alpha;
         s.stallWarning = false;
+        // Induced Drag (Lift induced)
         Cd += (Cl * Cl) / (Math.PI * 0.8 * 7);
         pitchMoment -= alpha * 2.0; 
     } else {
+        // Stalled
         s.stallWarning = true;
         Cl = Math.sin(alpha) * 0.8; 
+        // Massive drag spike when stalled
         Cd += 0.8 * Math.sin(Math.abs(alpha));
         if (Math.abs(alpha) < Math.PI / 2) {
              pitchMoment -= 1.5 * Math.sign(alpha);
@@ -371,8 +394,9 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
     const dragX = -Math.cos(gamma) * dragForceMag;
     const dragY = -Math.sin(gamma) * dragForceMag;
 
-    // Thrust
-    const thrustMag = s.engineOn ? s.throttle * DEFAULT_PARAMS.thrustPower * (airDensityRatio * 0.8 + 0.2) : 0;
+    // Thrust - Apply Engine Upgrade
+    const currentThrustPower = engineStats.power;
+    const thrustMag = s.engineOn ? s.throttle * currentThrustPower * (airDensityRatio * 0.8 + 0.2) : 0;
     const thrustX = Math.cos(s.rotation) * thrustMag;
     const thrustY = Math.sin(s.rotation) * thrustMag;
 
@@ -388,19 +412,21 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
         }
     }
 
-    // Turbulence (Increased intensity for Storm)
+    // Turbulence (Increased intensity for Storm, Reduced by Aero Upgrade)
     let turbulenceX = 0;
     let turbulenceY = 0;
     if (mission?.weather.turbulence && speed > 20) {
-        const baseIntensity = mission.weather.turbulence * (speed / 50) * 1000;
+        // Apply Aero Upgrade to reduce turbulence effect
+        const baseIntensity = mission.weather.turbulence * (speed / 50) * 1000 * aeroStats.turbulenceMod;
         if (Math.random() < 0.1) { 
             turbulenceX = (Math.random() - 0.5) * baseIntensity * 2;
             turbulenceY = (Math.random() - 0.5) * baseIntensity * 2;
         }
     }
 
-    // Gravity
-    const gravityForce = DEFAULT_PARAMS.mass * DEFAULT_PARAMS.gravity;
+    // Gravity - Use Weight Upgrade Mass
+    const currentMass = weightStats.mass;
+    const gravityForce = currentMass * DEFAULT_PARAMS.gravity;
 
     let Fx = liftX + dragX + thrustX + turbulenceX;
     let Fy = liftY + dragY + thrustY - gravityForce + turbulenceY;
@@ -431,14 +457,16 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
         
         if (s.gear) {
             if (Fy < 0) Fy = 0;
-            const frictionCoeff = s.brakes ? 0.8 : 0.02;
+            // Apply Landing Gear Upgrades to braking and crash tolerance
+            const frictionCoeff = s.brakes ? gearStats.brakeMod : 0.02;
             const normalForce = gravityForce - liftY;
             if (normalForce > 0) {
                 const frictionMag = normalForce * frictionCoeff;
                 const dirX = Math.sign(s.velocity.x);
                 Fx -= dirX * frictionMag;
             }
-            if (s.velocity.y < -6) s.crashed = true;
+            // Use gearStats.tolerance (Default 6, upgrades to 8, 10, 14)
+            if (s.velocity.y < -gearStats.tolerance) s.crashed = true;
         }
         
         s.position.y = 0;
@@ -470,8 +498,9 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
         }
     }
 
-    const ax = Fx / DEFAULT_PARAMS.mass;
-    const ay = Fy / DEFAULT_PARAMS.mass;
+    // Newton's 2nd Law (F=ma)
+    const ax = Fx / currentMass;
+    const ay = Fy / currentMass;
 
     s.velocity.x += ax * dt;
     s.velocity.y += ay * dt;
@@ -479,7 +508,8 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
     s.position.y += s.velocity.y * dt;
 
     let torque = 0;
-    const controlAuthority = Math.min(dynamicPressure / 500, 1.5); 
+    // Hydraulics increase control authority
+    const controlAuthority = Math.min(dynamicPressure / 500, 1.5) * hydraulicsStats.effectiveness; 
 
     if (inputRef.current.pitchUp) torque += 1.5 * controlAuthority; 
     if (inputRef.current.pitchDown) torque -= 1.5 * controlAuthority; 
@@ -489,7 +519,8 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
     
     // Add turbulence torque (roll/pitch instability)
     if (mission?.weather.turbulence && speed > 30) {
-        torque += (Math.random() - 0.5) * mission.weather.turbulence * 0.5;
+        // Reduced by Aero Upgrade
+        torque += (Math.random() - 0.5) * mission.weather.turbulence * 0.5 * aeroStats.turbulenceMod;
     }
 
     const turnRate = torque * dt; 
@@ -715,7 +746,8 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
         // Only shake if moving fast enough to feel it
         const speed = Math.sqrt(s.velocity.x**2 + s.velocity.y**2);
         if (speed > 20) {
-            const intensity = mission.weather.turbulence * (speed/50) * 10; // Pixels
+            // Shake affected by Aero Upgrade
+            const intensity = mission.weather.turbulence * (speed/50) * 10 * aeroStats.turbulenceMod; // Pixels
             shakeX = (Math.random() - 0.5) * intensity;
             shakeY = (Math.random() - 0.5) * intensity;
         }
@@ -949,16 +981,16 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
     }
 
     // Plane Body Drawing
-    ctx.fillStyle = '#dc2626'; // Tail Red
+    ctx.fillStyle = liveryColor; // Use Custom Livery Color
     ctx.beginPath();
     ctx.moveTo(-28 * scale, 0);
     ctx.lineTo(-38 * scale, -14 * scale);
     ctx.lineTo(-30 * scale, 0);
     ctx.fill();
-    ctx.strokeStyle = '#7f1d1d';
+    ctx.strokeStyle = '#7f1d1d'; // Darker outline
     ctx.stroke();
 
-    ctx.fillStyle = '#f1f5f9'; // Fuselage
+    ctx.fillStyle = '#f1f5f9'; // Fuselage (White/Grey Accent)
     ctx.beginPath();
     ctx.moveTo(35 * scale, 2 * scale); // Nose
     ctx.bezierCurveTo(35 * scale, -10 * scale, -30 * scale, -8 * scale, -30 * scale, -2 * scale); // Top curve
@@ -967,6 +999,15 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
+    
+    // Fuselage Color Strip (Custom Livery)
+    ctx.fillStyle = liveryColor;
+    ctx.beginPath();
+    ctx.moveTo(10 * scale, 2 * scale);
+    ctx.lineTo(-20 * scale, 2 * scale);
+    ctx.lineTo(-20 * scale, -4 * scale);
+    ctx.lineTo(10 * scale, -4 * scale);
+    ctx.fill();
 
     // Cockpit Window
     ctx.fillStyle = (isNight || isStorm) ? '#0ea5e9' : '#38bdf8';
@@ -1104,11 +1145,13 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
     // Refueling Hint
     const speed = Math.sqrt(s.velocity.x**2 + s.velocity.y**2);
     const onGround = s.position.y <= 0.1;
-    if (onGround && speed < 1.0 && !s.engineOn && s.fuel < 100) {
+    // Get max fuel from constants based on current profile level or default to 100
+    const currentMaxFuel = fuelStats.capacity;
+    if (onGround && speed < 1.0 && !s.engineOn && s.fuel < currentMaxFuel) {
          ctx.textAlign = 'center';
          ctx.fillStyle = '#22c55e';
          ctx.font = 'bold 24px "Inter"';
-         ctx.fillText(`REFUELING: ${s.fuel.toFixed(0)}%`, canvasW / 2, canvasH / 2 - 100);
+         ctx.fillText(`REFUELING: ${s.fuel.toFixed(0)} / ${currentMaxFuel}`, canvasW / 2, canvasH / 2 - 100);
          ctx.textAlign = 'left';
     }
 
@@ -1124,7 +1167,7 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
         ctx.textAlign = 'left';
     }
 
-  }, [mission]);
+  }, [mission, userProfile, aeroStats, fuelStats, weightStats, hydraulicsStats]);
 
   // Main Loop
   useEffect(() => {
