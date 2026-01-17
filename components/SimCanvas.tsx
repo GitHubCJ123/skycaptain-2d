@@ -41,6 +41,105 @@ interface Obstacle {
     type: 'tower';
 }
 
+interface Building {
+    x: number;
+    width: number;
+    height: number;
+    color: string;
+    windowColor: string;
+    hasAntenna: boolean;
+    antennaHeight: number;
+    windowLitPattern: boolean[][]; // Pre-generated pattern of which windows are lit
+}
+
+interface CityZone {
+    startX: number;
+    endX: number;
+    buildings: Building[];
+}
+
+// Building colors palette
+const BUILDING_COLORS = [
+    '#475569', '#64748b', '#334155', '#1e293b', // Grays/Slate
+    '#78716c', '#57534e', '#44403c', // Stone
+    '#7c2d12', '#9a3412', '#c2410c', // Brick orange
+    '#1e3a8a', '#1e40af', '#3730a3', // Blues
+    '#155e75', '#0e7490', '#0891b2', // Cyan
+    '#166534', '#15803d', '#16a34a', // Greens
+];
+
+const WINDOW_COLORS = [
+    'rgba(250, 250, 180, 0.9)', // Warm yellow
+    'rgba(200, 230, 255, 0.8)', // Cool blue
+    'rgba(255, 255, 255, 0.7)', // White
+    'rgba(180, 200, 255, 0.6)', // Light blue
+];
+
+// Generate buildings for a city zone
+const generateCityBuildings = (startX: number, endX: number): Building[] => {
+    const buildings: Building[] = [];
+    let currentX = startX;
+    
+    while (currentX < endX) {
+        const width = 30 + Math.random() * 70; // 30-100m wide
+        const height = 20 + Math.random() * 180; // 20-200m tall
+        const colorIdx = Math.floor(Math.random() * BUILDING_COLORS.length);
+        const windowColorIdx = Math.floor(Math.random() * WINDOW_COLORS.length);
+        
+        // Pre-generate window lit pattern
+        const windowRows = Math.floor(height / 8);
+        const windowCols = Math.floor(width / 12);
+        const windowLitPattern: boolean[][] = [];
+        for (let row = 0; row < windowRows; row++) {
+            windowLitPattern[row] = [];
+            for (let col = 0; col < windowCols; col++) {
+                // ~60% of windows are lit at night, ~30% during day
+                windowLitPattern[row][col] = Math.random() > 0.4;
+            }
+        }
+        
+        buildings.push({
+            x: currentX,
+            width,
+            height,
+            color: BUILDING_COLORS[colorIdx],
+            windowColor: WINDOW_COLORS[windowColorIdx],
+            hasAntenna: Math.random() > 0.7 && height > 80,
+            antennaHeight: 15 + Math.random() * 20,
+            windowLitPattern,
+        });
+        
+        currentX += width; // No gap between buildings - they touch
+    }
+    
+    return buildings;
+};
+
+// Pre-generate city zones at fixed world positions
+const generateCityZones = (): CityZone[] => {
+    const zones: CityZone[] = [];
+    
+    // Create cities at various locations (avoiding runway area around 0)
+    const cityPositions = [
+        { start: -5000, end: -4000 },
+        { start: -2500, end: -1800 },
+        { start: 2000, end: 3200 },
+        { start: 4500, end: 5500 },
+        { start: 7000, end: 8500 },
+        { start: -8000, end: -6500 },
+    ];
+    
+    for (const pos of cityPositions) {
+        zones.push({
+            startX: pos.start,
+            endX: pos.end,
+            buildings: generateCityBuildings(pos.start, pos.end),
+        });
+    }
+    
+    return zones;
+};
+
 export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, externalControls, userProfile }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const requestRef = useRef<number>(null);
@@ -52,6 +151,7 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
   const rainRef = useRef<Particle[]>([]);
   const boltsRef = useRef<LightningBolt[]>([]);
   const obstaclesRef = useRef<Obstacle[]>([]);
+  const cityZonesRef = useRef<CityZone[]>(generateCityZones());
   
   // Lightning Flash State (Screen whiteout)
   const lightningFlashRef = useRef({ intensity: 0 });
@@ -144,6 +244,9 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
           }
       }
       obstaclesRef.current = obs;
+
+      // Regenerate city zones with fresh building data
+      cityZonesRef.current = generateCityZones();
 
       // Clear particles on reset
       particlesRef.current = [];
@@ -685,6 +788,151 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
     ctx.fill();
   };
 
+  // Check if a world position is within a city zone
+  const isInCityZone = (worldX: number): CityZone | null => {
+    for (const zone of cityZonesRef.current) {
+      if (worldX >= zone.startX && worldX <= zone.endX) {
+        return zone;
+      }
+    }
+    return null;
+  };
+
+  // Draw city buildings
+  const drawCityBuildings = (ctx: CanvasRenderingContext2D, cameraX: number, cameraY: number, width: number, isNight: boolean, isStorm: boolean) => {
+    const worldCamX = cameraX / WORLD_SCALE;
+    const viewStartX = worldCamX - 100;
+    const viewEndX = worldCamX + (width / WORLD_SCALE) + 100;
+    
+    for (const zone of cityZonesRef.current) {
+      // Skip zones not in view
+      if (zone.endX < viewStartX || zone.startX > viewEndX) continue;
+      
+      // Draw city ground fill first (to cover any gaps)
+      const zoneScreenStartX = zone.startX * WORLD_SCALE - cameraX;
+      const zoneScreenEndX = zone.endX * WORLD_SCALE - cameraX;
+      const zoneWidth = zoneScreenEndX - zoneScreenStartX;
+      ctx.fillStyle = (isNight || isStorm) ? '#1e293b' : '#374151'; // Dark ground for city
+      ctx.fillRect(zoneScreenStartX, cameraY - 300, zoneWidth, 400); // Fill up from ground
+      
+      for (const building of zone.buildings) {
+        // Skip buildings not in view
+        if (building.x + building.width < viewStartX || building.x > viewEndX) continue;
+        
+        const screenX = building.x * WORLD_SCALE - cameraX;
+        const screenBaseY = cameraY; // Ground level
+        const buildingWidth = building.width * WORLD_SCALE;
+        const buildingHeight = building.height * WORLD_SCALE;
+        
+        // Building shadow (subtle)
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+        ctx.fillRect(screenX + 5, screenBaseY - buildingHeight + 5, buildingWidth, buildingHeight);
+        
+        // Main building body
+        ctx.fillStyle = building.color;
+        ctx.fillRect(screenX, screenBaseY - buildingHeight, buildingWidth, buildingHeight);
+        
+        // Building edge highlight
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+        ctx.fillRect(screenX, screenBaseY - buildingHeight, 3, buildingHeight);
+        
+        // Building edge shadow
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+        ctx.fillRect(screenX + buildingWidth - 3, screenBaseY - buildingHeight, 3, buildingHeight);
+        
+        // Windows
+        const windowLitPattern = building.windowLitPattern || [];
+        const windowRows = windowLitPattern.length;
+        const windowCols = windowRows > 0 && windowLitPattern[0] ? windowLitPattern[0].length : 0;
+        const windowWidth = 6 * WORLD_SCALE;
+        const windowHeight = 4 * WORLD_SCALE;
+        const windowSpacingX = windowCols > 0 ? (buildingWidth - windowCols * windowWidth) / (windowCols + 1) : 0;
+        const windowSpacingY = windowRows > 0 ? (buildingHeight - windowRows * windowHeight) / (windowRows + 1) : 0;
+        
+        for (let row = 0; row < windowRows; row++) {
+          for (let col = 0; col < windowCols; col++) {
+            // Use pre-generated pattern - more windows lit at night
+            const isLit = (isNight || isStorm) ? windowLitPattern[row][col] : !windowLitPattern[row][col];
+            
+            if (isLit) {
+              ctx.fillStyle = building.windowColor;
+              if (isNight || isStorm) {
+                ctx.shadowColor = building.windowColor;
+                ctx.shadowBlur = 3;
+              }
+            } else {
+              ctx.fillStyle = 'rgba(30, 40, 50, 0.8)';
+              ctx.shadowBlur = 0;
+            }
+            
+            const wx = screenX + windowSpacingX + col * (windowWidth + windowSpacingX);
+            const wy = screenBaseY - buildingHeight + windowSpacingY + row * (windowHeight + windowSpacingY);
+            ctx.fillRect(wx, wy, windowWidth, windowHeight);
+          }
+        }
+        ctx.shadowBlur = 0;
+        
+        // Roof details
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+        ctx.fillRect(screenX, screenBaseY - buildingHeight, buildingWidth, 3);
+        
+        // Antenna on some tall buildings
+        if (building.hasAntenna) {
+          ctx.strokeStyle = '#64748b';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(screenX + buildingWidth / 2, screenBaseY - buildingHeight);
+          ctx.lineTo(screenX + buildingWidth / 2, screenBaseY - buildingHeight - building.antennaHeight * WORLD_SCALE);
+          ctx.stroke();
+          
+          // Blinking light on antenna
+          if ((isNight || isStorm) && Math.floor(Date.now() / 500) % 2 === 0) {
+            ctx.fillStyle = '#ef4444';
+            ctx.shadowColor = '#ef4444';
+            ctx.shadowBlur = 8;
+            ctx.beginPath();
+            ctx.arc(screenX + buildingWidth / 2, screenBaseY - buildingHeight - building.antennaHeight * WORLD_SCALE, 3, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+          }
+        }
+      }
+    }
+  };
+
+  // Draw parallax mountains/hills only where there's no city
+  const drawParallaxWithCities = (ctx: CanvasRenderingContext2D, cameraX: number, scaleX: number, scaleY: number, yOffset: number, color: string, amplitude: number, frequency: number, width: number, height: number, verticalOffset: number) => {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(0, height);
+    
+    const segmentWidth = 50;
+    const totalSegments = Math.ceil(width / segmentWidth) + 2;
+    const startX = Math.floor((cameraX * scaleX) / segmentWidth) * segmentWidth;
+    const offsetX = (cameraX * scaleX) % segmentWidth;
+
+    for (let i = -1; i < totalSegments; i++) {
+        const x = (i * segmentWidth) - offsetX;
+        const worldX = (startX + (i * segmentWidth)) / scaleX / WORLD_SCALE;
+        
+        // Check if we're in a city zone - flatten the terrain
+        const cityZone = isInCityZone(worldX);
+        
+        let y: number;
+        if (cityZone) {
+            // Flat terrain in city zones (just slightly above ground level)
+            y = height - 50 + (verticalOffset * scaleY);
+        } else {
+            const noise = Math.sin(worldX * frequency * WORLD_SCALE * scaleX) * amplitude + Math.cos(worldX * frequency * 2.5 * WORLD_SCALE * scaleX) * (amplitude / 2);
+            y = (height - yOffset - noise) + (verticalOffset * scaleY);
+        }
+        ctx.lineTo(x, y);
+    }
+    ctx.lineTo(width, height);
+    ctx.lineTo(0, height);
+    ctx.fill();
+  };
+
   const drawClouds = (ctx: CanvasRenderingContext2D, cameraX: number, width: number, verticalOffset: number, isNight: boolean, isStorm: boolean) => {
     // High Clouds
     ctx.fillStyle = isStorm 
@@ -817,17 +1065,20 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
         ctx.globalAlpha = 1.0;
     }
 
-    // 2. Parallax Layers
+    // 2. Parallax Layers (with city awareness - mountains hide in city zones)
     if (isNight || isStorm) {
-        drawParallaxLayer(ctx, renderCamX, 0.1, 0.05, 350, '#0f172a', 150, 0.005, canvasW, canvasH, verticalShift); 
-        drawParallaxLayer(ctx, renderCamX, 0.4, 0.20, 250, '#022c22', 80, 0.01, canvasW, canvasH, verticalShift); 
+        drawParallaxWithCities(ctx, renderCamX, 0.1, 0.05, 350, '#0f172a', 150, 0.005, canvasW, canvasH, verticalShift); 
+        drawParallaxWithCities(ctx, renderCamX, 0.4, 0.20, 250, '#022c22', 80, 0.01, canvasW, canvasH, verticalShift); 
     } else {
-        drawParallaxLayer(ctx, renderCamX, 0.1, 0.05, 350, '#334155', 150, 0.005, canvasW, canvasH, verticalShift); 
-        drawParallaxLayer(ctx, renderCamX, 0.4, 0.20, 250, '#166534', 80, 0.01, canvasW, canvasH, verticalShift); 
+        drawParallaxWithCities(ctx, renderCamX, 0.1, 0.05, 350, '#334155', 150, 0.005, canvasW, canvasH, verticalShift); 
+        drawParallaxWithCities(ctx, renderCamX, 0.4, 0.20, 250, '#166534', 80, 0.01, canvasW, canvasH, verticalShift); 
     }
 
-    // Clouds
+    // Clouds (draw before buildings so buildings are in front)
     drawClouds(ctx, renderCamX, canvasW, verticalShift, isNight, isStorm);
+
+    // Draw city buildings (in front of clouds and parallax layers)
+    drawCityBuildings(ctx, renderCamX, renderCamY, canvasW, isNight, isStorm);
 
     // Lightning Bolts
     drawBolts(ctx, renderCamX, renderCamY);
@@ -1070,18 +1321,11 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
 
     // Propeller Blur
     if (s.engineOn) {
-        const propSpeed = s.throttle * 50;
         const blurWidth = 2 + s.throttle * 5;
         ctx.fillStyle = `rgba(50, 50, 50, 0.2)`;
         ctx.beginPath();
         ctx.ellipse(38 * scale, 0, blurWidth, 25 * scale, 0, 0, Math.PI * 2);
         ctx.fill();
-        ctx.save();
-        ctx.translate(38 * scale, 0);
-        ctx.rotate(Date.now() / (1000/propSpeed));
-        ctx.fillStyle = '#333';
-        ctx.fillRect(-2, -25 * scale, 4, 50 * scale);
-        ctx.restore();
     }
     
     // Beacon Light

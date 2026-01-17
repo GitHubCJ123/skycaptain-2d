@@ -28,6 +28,9 @@ const App: React.FC = () => {
   // Smart Tips State
   const [currentTip, setCurrentTip] = useState<string>("");
   const flightStateRef = useRef(flightState); // Ref to access latest state in interval
+  
+  // Cheat code state
+  const cheatBufferRef = useRef<string>("");
 
   // Resolve Max Fuel for UI
   const maxFuel = FUEL_UPGRADES[userProfile.upgrades.fuelLevel || 0].capacity;
@@ -117,6 +120,40 @@ const App: React.FC = () => {
           handleStartMission(mission);
       }
   };
+
+  // Cheat code listener (only on menu screens)
+  useEffect(() => {
+    if (status === GameStatus.FLYING) return;
+    
+    const handleCheatKey = (e: KeyboardEvent) => {
+      // Only listen for alphanumeric keys
+      if (e.key.length === 1 && /[a-z0-9]/i.test(e.key)) {
+        cheatBufferRef.current += e.key.toLowerCase();
+        // Keep buffer to last 20 chars
+        if (cheatBufferRef.current.length > 20) {
+          cheatBufferRef.current = cheatBufferRef.current.slice(-20);
+        }
+        // Check for cheat codes
+        if (cheatBufferRef.current.includes('jacobisthebest67')) {
+          setUserProfile(prev => ({
+            ...prev,
+            coins: Infinity
+          }));
+          cheatBufferRef.current = '';
+        }
+        if (cheatBufferRef.current.includes('jacobisnotthebest67')) {
+          setUserProfile(prev => ({
+            ...prev,
+            coins: 0
+          }));
+          cheatBufferRef.current = '';
+        }
+      }
+    };
+    
+    window.addEventListener('keydown', handleCheatKey);
+    return () => window.removeEventListener('keydown', handleCheatKey);
+  }, [status]);
 
   // Global key listener
   useEffect(() => {
