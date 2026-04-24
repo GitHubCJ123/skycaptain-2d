@@ -6,9 +6,10 @@ interface MissionControlProps {
   onStartMission: (mission: Mission) => void;
   onOpenHangar: () => void;
   userProfile: UserProfile;
+  onUpdateProfile: (profile: UserProfile) => void;
 }
 
-export const MissionControl: React.FC<MissionControlProps> = ({ onStartMission, onOpenHangar, userProfile }) => {
+export const MissionControl: React.FC<MissionControlProps> = ({ onStartMission, onOpenHangar, userProfile, onUpdateProfile }) => {
   const [obstaclesEnabled, setObstaclesEnabled] = useState(false);
 
   const handleStartFree = () => {
@@ -129,7 +130,7 @@ export const MissionControl: React.FC<MissionControlProps> = ({ onStartMission, 
         <p className="text-slate-400 mb-6">Flight Simulator</p>
 
         {/* Settings Bar */}
-        <div className="flex items-center justify-center gap-4 mb-8 bg-slate-800/50 p-2 rounded-full max-w-md mx-auto border border-slate-700">
+        <div className="flex items-center justify-center gap-4 mb-8 bg-slate-800/50 p-2 rounded-full max-w-2xl mx-auto border border-slate-700 flex-wrap">
             <span className="text-xs font-bold text-slate-400 uppercase tracking-wider pl-2">Settings:</span>
             <button 
                 onClick={() => setObstaclesEnabled(!obstaclesEnabled)}
@@ -137,6 +138,14 @@ export const MissionControl: React.FC<MissionControlProps> = ({ onStartMission, 
             >
                 <div className={`w-2 h-2 rounded-full transition-colors ${obstaclesEnabled ? 'bg-red-500 shadow-[0_0_8px_#ef4444]' : 'bg-slate-600'}`} />
                 OBSTACLES: {obstaclesEnabled ? 'ON' : 'OFF'}
+            </button>
+            <button
+                onClick={() => onUpdateProfile({ ...userProfile, invertPitch: !userProfile.invertPitch })}
+                title="When ON, pulling ↓ raises the nose like a real yoke; ↑ pitches down."
+                className={`flex items-center gap-2 px-4 py-1.5 rounded-full border transition-all text-xs font-bold ${userProfile.invertPitch ? 'bg-sky-900/40 border-sky-500 text-sky-300' : 'bg-slate-800 border-slate-600 text-slate-500 hover:text-slate-300'}`}
+            >
+                <div className={`w-2 h-2 rounded-full transition-colors ${userProfile.invertPitch ? 'bg-sky-400 shadow-[0_0_8px_#38bdf8]' : 'bg-slate-600'}`} />
+                INVERT PITCH: {userProfile.invertPitch ? 'ON' : 'OFF'}
             </button>
         </div>
 
@@ -204,6 +213,8 @@ export const MissionControl: React.FC<MissionControlProps> = ({ onStartMission, 
               <span>[B] Brakes</span>
               <span>[G] Landing Gear</span>
               <span>[F/V] Flaps</span>
+              <span>[P] Pause</span>
+              <span className="text-amber-400">Fly through gold rings to earn coins!</span>
             </div>
         </div>
       </div>

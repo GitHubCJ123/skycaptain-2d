@@ -96,6 +96,7 @@ export const Controls: React.FC<ControlsProps> = ({
          <div>B : Brakes</div>
          <div>G : Gear</div>
          <div>F/V : Flaps</div>
+         <div>P : Pause</div>
       </div>
     </div>
   );

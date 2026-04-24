@@ -14,6 +14,17 @@ interface SimCanvasProps {
       engineOn: boolean;
   };
   userProfile: UserProfile;
+  paused?: boolean;
+  onCoinEarned?: (amount: number, label: string, worldPos?: Vector2) => void;
+}
+
+interface Ring {
+    x: number;
+    y: number;
+    radius: number;
+    collected: boolean;
+    pulse: number;
+    value: number;
 }
 
 interface Particle {
@@ -140,7 +151,7 @@ const generateCityZones = (): CityZone[] => {
     return zones;
 };
 
-export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, externalControls, userProfile }) => {
+export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, externalControls, userProfile, paused = false, onCoinEarned }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const requestRef = useRef<number>(null);
   const stateRef = useRef<FlightState>(JSON.parse(JSON.stringify(INITIAL_STATE)));
@@ -151,6 +162,11 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
   const rainRef = useRef<Particle[]>([]);
   const boltsRef = useRef<LightningBolt[]>([]);
   const obstaclesRef = useRef<Obstacle[]>([]);
+  const ringsRef = useRef<Ring[]>([]);
+  const landingScoredRef = useRef<boolean>(false);
+  const wasAirborneRef = useRef<boolean>(false);
+  const pendingLandingRef = useRef<{ bonus: number; label: string } | null>(null);
+  const pausedRef = useRef<boolean>(false);
   const cityZonesRef = useRef<CityZone[]>(generateCityZones());
   
   // Lightning Flash State (Screen whiteout)
@@ -245,6 +261,27 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
       }
       obstaclesRef.current = obs;
 
+      // Generate Coin Rings - floating collectibles in the sky
+      const rings: Ring[] = [];
+      const ringCount = 14;
+      for (let i = 0; i < ringCount; i++) {
+          // Spread rings across the playable corridor; bias near runway region
+          const xPos = -3500 + (i / (ringCount - 1)) * 9000 + (Math.random() - 0.5) * 400;
+          const yPos = 80 + Math.random() * 700; // 80m - 780m altitude
+          rings.push({
+              x: xPos,
+              y: yPos,
+              radius: 22, // meters
+              collected: false,
+              pulse: Math.random() * Math.PI * 2,
+              value: 5,
+          });
+      }
+      ringsRef.current = rings;
+      landingScoredRef.current = false;
+      wasAirborneRef.current = mission.startingConditions.airborne;
+      pendingLandingRef.current = null;
+
       // Regenerate city zones with fresh building data
       cityZonesRef.current = generateCityZones();
 
@@ -255,6 +292,11 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
       lightningFlashRef.current = { intensity: 0 };
     }
   }, [mission, fuelStats.capacity]);
+
+  // Sync paused flag into ref for game loop
+  useEffect(() => {
+    pausedRef.current = paused;
+  }, [paused]);
 
   // Sync external controls
   useEffect(() => {
@@ -274,14 +316,28 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
 
   // Input Handling
   const inputRef = useRef({ pitchUp: false, pitchDown: false });
+  const invertPitchRef = useRef<boolean>(!!userProfile.invertPitch);
+  useEffect(() => { invertPitchRef.current = !!userProfile.invertPitch; }, [userProfile.invertPitch]);
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
-        if (e.key === "ArrowUp") inputRef.current.pitchUp = true;
-        if (e.key === "ArrowDown") inputRef.current.pitchDown = true;
+        if (e.key === "ArrowUp") {
+            if (invertPitchRef.current) inputRef.current.pitchDown = true;
+            else inputRef.current.pitchUp = true;
+        }
+        if (e.key === "ArrowDown") {
+            if (invertPitchRef.current) inputRef.current.pitchUp = true;
+            else inputRef.current.pitchDown = true;
+        }
     };
     const up = (e: KeyboardEvent) => {
-        if (e.key === "ArrowUp") inputRef.current.pitchUp = false;
-        if (e.key === "ArrowDown") inputRef.current.pitchDown = false;
+        if (e.key === "ArrowUp") {
+            if (invertPitchRef.current) inputRef.current.pitchDown = false;
+            else inputRef.current.pitchUp = false;
+        }
+        if (e.key === "ArrowDown") {
+            if (invertPitchRef.current) inputRef.current.pitchUp = false;
+            else inputRef.current.pitchDown = false;
+        }
     };
     window.addEventListener("keydown", down);
     window.addEventListener("keyup", up);
@@ -578,6 +634,71 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
         s.landed = false;
     }
 
+    // --- Ring Collection ---
+    {
+        const px = s.position.x;
+        const py = s.position.y;
+        for (const ring of ringsRef.current) {
+            if (ring.collected) continue;
+            const dx = px - ring.x;
+            const dy = py - ring.y;
+            // Squared distance check vs ring radius (plane half-size ~3m)
+            if (dx*dx + dy*dy < (ring.radius + 3) * (ring.radius + 3)) {
+                ring.collected = true;
+                // Burst of celebratory sparks
+                for (let i = 0; i < 18; i++) {
+                    const angle = (i / 18) * Math.PI * 2;
+                    const speed = 6 + Math.random() * 4;
+                    particlesRef.current.push({
+                        x: ring.x,
+                        y: ring.y,
+                        vx: Math.cos(angle) * speed,
+                        vy: Math.sin(angle) * speed,
+                        life: 1.0,
+                        maxLife: 1.0,
+                        size: 2 + Math.random() * 2,
+                        color: `rgba(251, 191, 36, 1)`,
+                        type: 'spark',
+                    });
+                }
+                onCoinEarned?.(ring.value, `+${ring.value} RING`, { x: ring.x, y: ring.y });
+            }
+        }
+    }
+
+    // --- Smooth Landing Bonus ---
+    {
+        const airborne = s.position.y > 1.0;
+        // Capture landing quality at moment of touchdown, but defer payout until the plane fully stops.
+        if (!airborne && wasAirborneRef.current && !landingScoredRef.current && !s.crashed && !pendingLandingRef.current) {
+            const vsi = Math.abs(s.velocity.y);
+            const levelness = Math.abs(s.rotation);
+            if (s.gear && vsi < 3 && levelness < 0.18) {
+                if (vsi < 1.2 && levelness < 0.10) {
+                    pendingLandingRef.current = { bonus: 60, label: "+60 PERFECT LANDING" };
+                } else {
+                    pendingLandingRef.current = { bonus: 25, label: "+25 SMOOTH LANDING" };
+                }
+            }
+        }
+        // Award only once the plane has fully stopped on the ground.
+        if (pendingLandingRef.current && !s.crashed) {
+            const groundSpeed = Math.sqrt(s.velocity.x * s.velocity.x + s.velocity.y * s.velocity.y);
+            if (!airborne && groundSpeed < 0.5) {
+                landingScoredRef.current = true;
+                const { bonus, label } = pendingLandingRef.current;
+                pendingLandingRef.current = null;
+                onCoinEarned?.(bonus, label, { x: s.position.x, y: 5 });
+            }
+        }
+        if (airborne) {
+            wasAirborneRef.current = true;
+            // Reset so subsequent landings can be scored after takeoff
+            landingScoredRef.current = false;
+            pendingLandingRef.current = null;
+        }
+    }
+
     // --- Obstacle Collision ---
     const planeX = s.position.x;
     const planeY = s.position.y;
@@ -701,6 +822,46 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
           ctx.restore();
       });
   }
+
+  const drawRings = (ctx: CanvasRenderingContext2D, cameraX: number, cameraY: number, dark: boolean) => {
+      const time = Date.now() / 1000;
+      ringsRef.current.forEach(ring => {
+          if (ring.collected) return;
+          const screenX = ring.x * WORLD_SCALE - cameraX;
+          const screenY = -(ring.y * WORLD_SCALE) + cameraY;
+          if (screenX < -200 || screenX > ctx.canvas.width + 200) return;
+          if (screenY < -200 || screenY > ctx.canvas.height + 200) return;
+
+          const pulse = 1 + Math.sin(time * 3 + ring.pulse) * 0.08;
+          const r = ring.radius * WORLD_SCALE * pulse;
+
+          ctx.save();
+          // Outer glow
+          ctx.shadowColor = '#fbbf24';
+          ctx.shadowBlur = dark ? 30 : 18;
+          ctx.strokeStyle = '#fbbf24';
+          ctx.lineWidth = 6;
+          ctx.beginPath();
+          ctx.arc(screenX, screenY, r, 0, Math.PI * 2);
+          ctx.stroke();
+          // Inner brighter ring
+          ctx.shadowBlur = 0;
+          ctx.strokeStyle = 'rgba(255, 247, 200, 0.95)';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(screenX, screenY, r - 3, 0, Math.PI * 2);
+          ctx.stroke();
+          // Rotating shimmer dot
+          const dotAngle = time * 2 + ring.pulse;
+          ctx.fillStyle = '#fff';
+          ctx.shadowColor = '#fff';
+          ctx.shadowBlur = 8;
+          ctx.beginPath();
+          ctx.arc(screenX + Math.cos(dotAngle) * r, screenY + Math.sin(dotAngle) * r, 3, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+      });
+  };
 
   const drawObstacles = (ctx: CanvasRenderingContext2D, cameraX: number, cameraY: number) => {
       const time = Date.now();
@@ -1086,6 +1247,9 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
     // Obstacles
     drawObstacles(ctx, renderCamX, renderCamY);
 
+    // Coin Rings
+    drawRings(ctx, renderCamX, renderCamY, isNight || isStorm);
+
     // Particles
     drawParticles(ctx, renderCamX, renderCamY);
 
@@ -1419,8 +1583,10 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
     const loop = (time: number) => {
         const dt = Math.min((time - lastTime) / 1000, 0.1); 
         lastTime = time;
-        updatePhysics(dt);
-        updateParticles(dt);
+        if (!pausedRef.current) {
+            updatePhysics(dt);
+            updateParticles(dt);
+        }
         const canvas = canvasRef.current;
         if (canvas) {
             const ctx = canvas.getContext('2d');

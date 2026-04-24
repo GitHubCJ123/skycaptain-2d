@@ -61,6 +61,7 @@ export enum GameStatus {
 
 export interface UserProfile {
   coins: number;
+  invertPitch?: boolean;
   upgrades: {
     engineLevel: number; // Currently equipped
     aeroLevel: number;

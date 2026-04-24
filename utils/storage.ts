@@ -5,6 +5,7 @@ const STORAGE_KEY = "skycaptain_save_v1";
 
 const DEFAULT_PROFILE: UserProfile = {
     coins: 0,
+    invertPitch: false,
     upgrades: {
         engineLevel: 0,
         aeroLevel: 0,

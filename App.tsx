@@ -28,7 +28,14 @@ const App: React.FC = () => {
   // Smart Tips State
   const [currentTip, setCurrentTip] = useState<string>("");
   const flightStateRef = useRef(flightState); // Ref to access latest state in interval
-  
+
+  // Pause state
+  const [paused, setPaused] = useState(false);
+
+  // Floating coin/score toasts
+  const [scoreToasts, setScoreToasts] = useState<{ id: number; label: string; }[]>([]);
+  const toastIdRef = useRef(0);
+
   // Cheat code state
   const cheatBufferRef = useRef<string>("");
 
@@ -121,6 +128,26 @@ const App: React.FC = () => {
       }
   };
 
+  // Reward handler from SimCanvas (rings, smooth landings, etc.)
+  const handleCoinEarned = (amount: number, label: string) => {
+      setUserProfile(prev => ({
+          ...prev,
+          // Preserve Infinity from cheat
+          coins: prev.coins === Infinity ? prev.coins : prev.coins + amount,
+      }));
+      const id = ++toastIdRef.current;
+      setScoreToasts(prev => [...prev, { id, label }]);
+      // Auto-remove toast after animation
+      setTimeout(() => {
+          setScoreToasts(prev => prev.filter(t => t.id !== id));
+      }, 1800);
+  };
+
+  // Reset pause when leaving flight
+  useEffect(() => {
+      if (status !== GameStatus.FLYING) setPaused(false);
+  }, [status]);
+
   // Cheat code listener (only on menu screens)
   useEffect(() => {
     if (status === GameStatus.FLYING) return;
@@ -173,6 +200,7 @@ const App: React.FC = () => {
             case 'v': setFlaps(prev => Math.max(prev - 0.25, 0)); break;
             case 'w': setThrottle(prev => Math.min(prev + 0.05, 1)); break;
             case 's': setThrottle(prev => Math.max(prev - 0.05, 0)); break;
+            case 'p': setPaused(prev => !prev); break;
         }
     };
     
@@ -188,6 +216,8 @@ const App: React.FC = () => {
         onUpdateState={setFlightState} 
         externalControls={{ throttle, flaps, gear, brakes, engineOn }}
         userProfile={userProfile}
+        paused={paused}
+        onCoinEarned={handleCoinEarned}
       />
 
       {/* UI Overlay Layer */}
@@ -216,6 +246,20 @@ const App: React.FC = () => {
                      <div className="w-3 h-3 rounded-full bg-amber-400 shadow-[0_0_5px_#fbbf24]"></div>
                      <span className="text-amber-400 font-mono font-bold text-xs">{userProfile.coins}</span>
                  </div>
+             </div>
+         )}
+
+         {/* Floating Score Toasts */}
+         {status === GameStatus.FLYING && scoreToasts.length > 0 && (
+             <div className="absolute top-20 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 z-50 pointer-events-none">
+                 {scoreToasts.map(t => (
+                     <div
+                         key={t.id}
+                         className="px-4 py-1.5 rounded-full bg-amber-500/90 border border-amber-300 text-black font-black text-sm tracking-wide shadow-[0_0_20px_rgba(251,191,36,0.6)] animate-[fadeUp_1.8s_ease-out_forwards]"
+                     >
+                         {t.label}
+                     </div>
+                 ))}
              </div>
          )}
 
@@ -275,6 +319,30 @@ const App: React.FC = () => {
          )}
       </div>
 
+      {/* PAUSE OVERLAY */}
+      {status === GameStatus.FLYING && paused && !flightState.crashed && (
+          <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm pointer-events-auto">
+              <div className="bg-slate-900/90 border-2 border-sky-500 px-12 py-8 rounded-2xl text-center shadow-[0_0_50px_rgba(56,189,248,0.4)]">
+                  <h2 className="text-5xl font-black text-white italic tracking-tighter mb-2">PAUSED</h2>
+                  <p className="text-sky-300 mb-6 font-mono text-xs">Press [P] to resume</p>
+                  <div className="flex gap-3 justify-center">
+                      <button
+                          onClick={() => setPaused(false)}
+                          className="px-6 py-2 bg-sky-500 text-white font-bold rounded hover:bg-sky-400 transition-colors"
+                      >
+                          RESUME
+                      </button>
+                      <button
+                          onClick={() => setStatus(GameStatus.MENU)}
+                          className="px-6 py-2 bg-slate-800 border border-slate-600 text-slate-300 font-bold rounded hover:bg-slate-700 transition-colors"
+                      >
+                          MAIN MENU
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
+
       {/* CRASHED OVERLAY */}
       {status === GameStatus.FLYING && flightState.crashed && (
           <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-black/70 backdrop-blur-sm pointer-events-auto">
@@ -306,6 +374,7 @@ const App: React.FC = () => {
             onStartMission={handleStartMission} 
             onOpenHangar={() => setStatus(GameStatus.HANGAR)}
             userProfile={userProfile}
+            onUpdateProfile={setUserProfile}
         />
       )}
 
