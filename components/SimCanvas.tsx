@@ -16,6 +16,9 @@ interface SimCanvasProps {
   userProfile: UserProfile;
   paused?: boolean;
   onCoinEarned?: (amount: number, label: string, worldPos?: Vector2) => void;
+  onRingsUpdate?: (rings: { x: number; y: number; collected: boolean }[]) => void;
+  onComboChange?: (mult: number, timeLeft: number) => void;
+  onMilestone?: (event: { type: 'crash' | 'landing' | 'perfectLanding' | 'smoothLanding' | 'ring'; data?: any }) => void;
 }
 
 interface Ring {
@@ -151,7 +154,7 @@ const generateCityZones = (): CityZone[] => {
     return zones;
 };
 
-export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, externalControls, userProfile, paused = false, onCoinEarned }) => {
+export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, externalControls, userProfile, paused = false, onCoinEarned, onRingsUpdate, onComboChange, onMilestone }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const requestRef = useRef<number>(null);
   const stateRef = useRef<FlightState>(JSON.parse(JSON.stringify(INITIAL_STATE)));
@@ -163,10 +166,13 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
   const boltsRef = useRef<LightningBolt[]>([]);
   const obstaclesRef = useRef<Obstacle[]>([]);
   const ringsRef = useRef<Ring[]>([]);
+  const ringChunksRef = useRef<Set<number>>(new Set());
   const landingScoredRef = useRef<boolean>(false);
   const wasAirborneRef = useRef<boolean>(false);
   const pendingLandingRef = useRef<{ bonus: number; label: string } | null>(null);
   const pausedRef = useRef<boolean>(false);
+  const comboRef = useRef<{ mult: number; lastCollect: number; timer: number }>({ mult: 1, lastCollect: 0, timer: 0 });
+  const crashAnnouncedRef = useRef<boolean>(false);
   const cityZonesRef = useRef<CityZone[]>(generateCityZones());
   
   // Lightning Flash State (Screen whiteout)
@@ -186,6 +192,62 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
   
   const liveryColor = LIVERIES.find(l => l.id === userProfile.upgrades.liveryId)?.value || '#dc2626';
   const smokeColor = SMOKE_COLORS.find(s => s.id === userProfile.upgrades.smokeId)?.value || 'rgba(200, 200, 200, 0.4)';
+
+  // --- Ring chunk streaming -----------------------------------------------
+  // World is divided into 1500m-wide chunks. Each chunk gets a deterministic
+  // (seeded by chunk index) cluster of rings. Chunks within ±N of the plane
+  // are kept generated; we never delete to preserve uncollected rings.
+  const RING_CHUNK_SIZE = 1500;
+  const RING_VIEW_CHUNKS = 4;
+
+  // Tiny seeded RNG so the same chunk index always yields the same rings.
+  const seededRand = (seed: number) => {
+    let s = (seed * 9301 + 49297) % 233280;
+    return () => {
+      s = (s * 9301 + 49297) % 233280;
+      return s / 233280;
+    };
+  };
+
+  const spawnRingsForChunk = (chunkIdx: number) => {
+    if (ringChunksRef.current.has(chunkIdx)) return;
+    ringChunksRef.current.add(chunkIdx);
+    const rand = seededRand(chunkIdx + 1000);
+    const chunkStart = chunkIdx * RING_CHUNK_SIZE;
+    const ringsPerChunk = 3;
+    // Skip rings that would overlap the runway corridor (low to ground)
+    const runwayEnd = RUNWAY_START_X + RUNWAY_LENGTH;
+    for (let i = 0; i < ringsPerChunk; i++) {
+      const xPos = chunkStart + (i + rand()) * (RING_CHUNK_SIZE / ringsPerChunk);
+      // Higher altitude floor inside the runway corridor so rings don't sit on the runway.
+      const overRunway = xPos > RUNWAY_START_X - 100 && xPos < runwayEnd + 100;
+      const yMin = overRunway ? 250 : 60;
+      const yMax = overRunway ? 800 : 750;
+      const yPos = yMin + rand() * (yMax - yMin);
+      ringsRef.current.push({
+        x: xPos,
+        y: yPos,
+        radius: 22,
+        collected: false,
+        pulse: rand() * Math.PI * 2,
+        value: 5,
+      });
+    }
+  };
+
+  const ensureRingChunks = (planeX: number) => {
+    const center = Math.floor(planeX / RING_CHUNK_SIZE);
+    let added = false;
+    for (let c = center - RING_VIEW_CHUNKS; c <= center + RING_VIEW_CHUNKS; c++) {
+      if (!ringChunksRef.current.has(c)) {
+        spawnRingsForChunk(c);
+        added = true;
+      }
+    }
+    if (added) {
+      onRingsUpdate?.(ringsRef.current.map(r => ({ x: r.x, y: r.y, collected: r.collected })));
+    }
+  };
 
   // Initialize stars once
   useEffect(() => {
@@ -261,26 +323,15 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
       }
       obstaclesRef.current = obs;
 
-      // Generate Coin Rings - floating collectibles in the sky
-      const rings: Ring[] = [];
-      const ringCount = 14;
-      for (let i = 0; i < ringCount; i++) {
-          // Spread rings across the playable corridor; bias near runway region
-          const xPos = -3500 + (i / (ringCount - 1)) * 9000 + (Math.random() - 0.5) * 400;
-          const yPos = 80 + Math.random() * 700; // 80m - 780m altitude
-          rings.push({
-              x: xPos,
-              y: yPos,
-              radius: 22, // meters
-              collected: false,
-              pulse: Math.random() * Math.PI * 2,
-              value: 5,
-          });
-      }
-      ringsRef.current = rings;
+      // Generate Coin Rings via chunked streaming so they keep spawning as you fly.
+      ringsRef.current = [];
+      ringChunksRef.current = new Set();
+      ensureRingChunks(startPos.x);
       landingScoredRef.current = false;
       wasAirborneRef.current = mission.startingConditions.airborne;
       pendingLandingRef.current = null;
+      comboRef.current = { mult: 1, lastCollect: 0, timer: 0 };
+      crashAnnouncedRef.current = false;
 
       // Regenerate city zones with fresh building data
       cityZonesRef.current = generateCityZones();
@@ -634,17 +685,39 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
         s.landed = false;
     }
 
-    // --- Ring Collection ---
+    // --- Ring Collection (with combo multiplier) ---
     {
         const px = s.position.x;
         const py = s.position.y;
+        const now = performance.now() / 1000;
+        const COMBO_WINDOW = 10.0; // seconds to chain rings
+        // Decay combo if window expired
+        if (comboRef.current.mult > 1 && (now - comboRef.current.lastCollect) > COMBO_WINDOW) {
+            comboRef.current.mult = 1;
+            comboRef.current.timer = 0;
+            onComboChange?.(1, 0);
+        } else if (comboRef.current.mult > 1) {
+            const left = Math.max(0, COMBO_WINDOW - (now - comboRef.current.lastCollect));
+            comboRef.current.timer = left;
+            onComboChange?.(comboRef.current.mult, left);
+        }
         for (const ring of ringsRef.current) {
             if (ring.collected) continue;
             const dx = px - ring.x;
             const dy = py - ring.y;
-            // Squared distance check vs ring radius (plane half-size ~3m)
             if (dx*dx + dy*dy < (ring.radius + 3) * (ring.radius + 3)) {
                 ring.collected = true;
+                // Update combo
+                if (now - comboRef.current.lastCollect <= COMBO_WINDOW) {
+                    comboRef.current.mult = Math.min(comboRef.current.mult + 1, 10);
+                } else {
+                    comboRef.current.mult = 1;
+                }
+                comboRef.current.lastCollect = now;
+                comboRef.current.timer = COMBO_WINDOW;
+                const mult = comboRef.current.mult;
+                const earned = ring.value * mult;
+
                 // Burst of celebratory sparks
                 for (let i = 0; i < 18; i++) {
                     const angle = (i / 18) * Math.PI * 2;
@@ -661,7 +734,11 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
                         type: 'spark',
                     });
                 }
-                onCoinEarned?.(ring.value, `+${ring.value} RING`, { x: ring.x, y: ring.y });
+                const label = mult > 1 ? `+${earned} RING ×${mult}` : `+${earned} RING`;
+                onCoinEarned?.(earned, label, { x: ring.x, y: ring.y });
+                onComboChange?.(mult, COMBO_WINDOW);
+                onMilestone?.({ type: 'ring', data: { mult } });
+                onRingsUpdate?.(ringsRef.current.map(r => ({ x: r.x, y: r.y, collected: r.collected })));
             }
         }
     }
@@ -689,6 +766,7 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
                 const { bonus, label } = pendingLandingRef.current;
                 pendingLandingRef.current = null;
                 onCoinEarned?.(bonus, label, { x: s.position.x, y: 5 });
+                onMilestone?.({ type: bonus >= 60 ? 'perfectLanding' : 'smoothLanding' });
             }
         }
         if (airborne) {
@@ -1541,6 +1619,32 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
     
     ctx.restore(); // End World Camera
 
+    // Speed lines (high-speed visual punch) — drawn in screen space
+    {
+        const spd = Math.sqrt(s.velocity.x*s.velocity.x + s.velocity.y*s.velocity.y);
+        const spdKt = spd * 1.94384;
+        if (spdKt > 90 && !s.crashed) {
+            const intensity = Math.min((spdKt - 90) / 120, 1); // 0 at 90kt, full at 210kt
+            const lineCount = Math.floor(8 + intensity * 18);
+            ctx.save();
+            ctx.strokeStyle = `rgba(255, 255, 255, ${0.10 + intensity * 0.30})`;
+            ctx.lineWidth = 1;
+            const t = Date.now() / 30;
+            for (let i = 0; i < lineCount; i++) {
+                // Pseudo-random consistent positions seeded by index, scrolled by time
+                const seedY = (i * 137) % canvasH;
+                const phase = (t * (1 + (i % 5) * 0.3) + i * 53) % (canvasW + 200);
+                const sx = canvasW + 100 - phase;
+                const len = 30 + intensity * 80 + (i % 7) * 4;
+                ctx.beginPath();
+                ctx.moveTo(sx, seedY);
+                ctx.lineTo(sx + len, seedY);
+                ctx.stroke();
+            }
+            ctx.restore();
+        }
+    }
+
     // Engine Hint (Text removed from canvas as it's now on dashboard)
     if (s.stallWarning) {
         ctx.textAlign = 'center';
@@ -1586,7 +1690,14 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
         if (!pausedRef.current) {
             updatePhysics(dt);
             updateParticles(dt);
+            ensureRingChunks(stateRef.current.position.x);
         }
+        const s = stateRef.current;
+        if (s.crashed && !crashAnnouncedRef.current) {
+            crashAnnouncedRef.current = true;
+            onMilestone?.({ type: 'crash' });
+        }
+
         const canvas = canvasRef.current;
         if (canvas) {
             const ctx = canvas.getContext('2d');

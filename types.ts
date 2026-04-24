@@ -62,6 +62,18 @@ export enum GameStatus {
 export interface UserProfile {
   coins: number;
   invertPitch?: boolean;
+  muted?: boolean;
+  stats?: {
+    bestAltitudeFt: number;
+    bestSpeedKt: number;
+    bestDistanceM: number;
+    bestComboMult: number;
+    longestFlightSec: number;
+    perfectLandings: number;
+    smoothLandings: number;
+    totalRings: number;
+    totalCrashes: number;
+  };
   upgrades: {
     engineLevel: number; // Currently equipped
     aeroLevel: number;

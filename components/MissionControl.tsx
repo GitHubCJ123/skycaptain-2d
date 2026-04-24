@@ -2,6 +2,19 @@
 import React, { useState } from 'react';
 import { Mission, UserProfile } from '../types';
 
+const fmtTime = (sec: number) => {
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return `${m}:${s.toString().padStart(2, '0')}`;
+};
+
+const Stat: React.FC<{ label: string; value: string }> = ({ label, value }) => (
+    <div className="flex flex-col">
+        <span className="text-[9px] font-mono uppercase tracking-wider text-slate-500">{label}</span>
+        <span className="text-sm font-bold text-white font-mono">{value}</span>
+    </div>
+);
+
 interface MissionControlProps {
   onStartMission: (mission: Mission) => void;
   onOpenHangar: () => void;
@@ -127,7 +140,24 @@ export const MissionControl: React.FC<MissionControlProps> = ({ onStartMission, 
         </div>
 
         <h1 className="text-4xl font-bold text-white mb-2 tracking-tight">SkyCaptain <span className="text-sky-400">2D</span></h1>
-        <p className="text-slate-400 mb-6">Flight Simulator</p>
+        <p className="text-slate-400 mb-4">Flight Simulator</p>
+
+        {/* Personal Bests */}
+        {userProfile.stats && (userProfile.stats.bestDistanceM > 0 || userProfile.stats.totalRings > 0 || userProfile.stats.smoothLandings > 0) && (
+            <div className="max-w-3xl mx-auto mb-6 bg-slate-950/60 border border-slate-800 rounded-xl px-4 py-3">
+                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Personal Bests</div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-left">
+                    <Stat label="Max Altitude" value={`${Math.round(userProfile.stats.bestAltitudeFt).toLocaleString()} ft`} />
+                    <Stat label="Max Speed" value={`${Math.round(userProfile.stats.bestSpeedKt)} kt`} />
+                    <Stat label="Max Distance" value={`${(userProfile.stats.bestDistanceM/1000).toFixed(1)} km`} />
+                    <Stat label="Best Combo" value={`×${userProfile.stats.bestComboMult}`} />
+                    <Stat label="Longest Flight" value={fmtTime(userProfile.stats.longestFlightSec)} />
+                    <Stat label="Rings Collected" value={`${userProfile.stats.totalRings}`} />
+                    <Stat label="Smooth / Perfect" value={`${userProfile.stats.smoothLandings} / ${userProfile.stats.perfectLandings}`} />
+                    <Stat label="Crashes" value={`${userProfile.stats.totalCrashes}`} />
+                </div>
+            </div>
+        )}
 
         {/* Settings Bar */}
         <div className="flex items-center justify-center gap-4 mb-8 bg-slate-800/50 p-2 rounded-full max-w-2xl mx-auto border border-slate-700 flex-wrap">

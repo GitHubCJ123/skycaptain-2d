@@ -3,9 +3,23 @@ import { UserProfile } from "../types";
 
 const STORAGE_KEY = "skycaptain_save_v1";
 
+const DEFAULT_STATS = {
+    bestAltitudeFt: 0,
+    bestSpeedKt: 0,
+    bestDistanceM: 0,
+    bestComboMult: 1,
+    longestFlightSec: 0,
+    perfectLandings: 0,
+    smoothLandings: 0,
+    totalRings: 0,
+    totalCrashes: 0,
+};
+
 const DEFAULT_PROFILE: UserProfile = {
     coins: 0,
     invertPitch: false,
+    muted: false,
+    stats: { ...DEFAULT_STATS },
     upgrades: {
         engineLevel: 0,
         aeroLevel: 0,
@@ -49,7 +63,7 @@ export const loadProfile = (): UserProfile => {
             unlockedHydraulics: savedUpgrades.unlockedHydraulics ?? savedUpgrades.hydraulicsLevel ?? 0,
         };
 
-        return { ...DEFAULT_PROFILE, ...parsed, upgrades };
+        return { ...DEFAULT_PROFILE, ...parsed, upgrades, stats: { ...DEFAULT_STATS, ...(parsed.stats || {}) } };
     } catch (e) {
         console.error("Failed to load save", e);
         return DEFAULT_PROFILE;

@@ -32,6 +32,15 @@ const App: React.FC = () => {
   // Pause state
   const [paused, setPaused] = useState(false);
 
+  // Combo state from SimCanvas
+  const [combo, setCombo] = useState<{ mult: number; timeLeft: number }>({ mult: 1, timeLeft: 0 });
+
+  // Rings for minimap
+  const [ringMap, setRingMap] = useState<{ x: number; y: number; collected: boolean }[]>([]);
+
+  // Per-flight session stats
+  const flightStartRef = useRef<number>(0);
+
   // Floating coin/score toasts
   const [scoreToasts, setScoreToasts] = useState<{ id: number; label: string; }[]>([]);
   const toastIdRef = useRef(0);
@@ -114,6 +123,9 @@ const App: React.FC = () => {
     // We create a new object reference to ensure the simulator resets even if it's the same mission
     setMission({ ...newMission }); 
     setStatus(GameStatus.FLYING);
+    flightStartRef.current = performance.now();
+    setCombo({ mult: 1, timeLeft: 0 });
+    setRingMap([]);
     // Reset controls based on start condition
     setThrottle(newMission.startingConditions.airborne ? 0.7 : 0);
     setEngineOn(newMission.startingConditions.airborne);
@@ -143,9 +155,56 @@ const App: React.FC = () => {
       }, 1800);
   };
 
+  // Milestone handler — updates stats / personal bests
+  const handleMilestone = (event: { type: string; data?: any }) => {
+      setUserProfile(prev => {
+          const stats = { ...(prev.stats || { bestAltitudeFt: 0, bestSpeedKt: 0, bestDistanceM: 0, bestComboMult: 1, longestFlightSec: 0, perfectLandings: 0, smoothLandings: 0, totalRings: 0, totalCrashes: 0 }) };
+          if (event.type === 'crash') stats.totalCrashes += 1;
+          if (event.type === 'smoothLanding') stats.smoothLandings += 1;
+          if (event.type === 'perfectLanding') stats.perfectLandings += 1;
+          if (event.type === 'ring') {
+              stats.totalRings += 1;
+              if (event.data?.mult > stats.bestComboMult) stats.bestComboMult = event.data.mult;
+          }
+          return { ...prev, stats };
+      });
+  };
+
+  // Continuously update best altitude/speed/distance/flight-time while flying
+  useEffect(() => {
+      if (status !== GameStatus.FLYING) return;
+      const id = setInterval(() => {
+          const s = flightStateRef.current;
+          if (s.crashed) return;
+          const altFt = s.position.y * 3.28084;
+          const speedKt = Math.sqrt(s.velocity.x*s.velocity.x + s.velocity.y*s.velocity.y) * 1.94384;
+          const distM = Math.abs(s.position.x);
+          const flightSec = (performance.now() - flightStartRef.current) / 1000;
+          setUserProfile(prev => {
+              const cur = prev.stats || { bestAltitudeFt: 0, bestSpeedKt: 0, bestDistanceM: 0, bestComboMult: 1, longestFlightSec: 0, perfectLandings: 0, smoothLandings: 0, totalRings: 0, totalCrashes: 0 };
+              const nextStats = {
+                  ...cur,
+                  bestAltitudeFt: Math.max(cur.bestAltitudeFt, altFt),
+                  bestSpeedKt: Math.max(cur.bestSpeedKt, speedKt),
+                  bestDistanceM: Math.max(cur.bestDistanceM, distM),
+                  longestFlightSec: Math.max(cur.longestFlightSec, flightSec),
+              };
+              const same =
+                nextStats.bestAltitudeFt === cur.bestAltitudeFt &&
+                nextStats.bestSpeedKt === cur.bestSpeedKt &&
+                nextStats.bestDistanceM === cur.bestDistanceM &&
+                nextStats.longestFlightSec === cur.longestFlightSec;
+              return same ? prev : { ...prev, stats: nextStats };
+          });
+      }, 1000);
+      return () => clearInterval(id);
+  }, [status]);
+
   // Reset pause when leaving flight
   useEffect(() => {
-      if (status !== GameStatus.FLYING) setPaused(false);
+      if (status !== GameStatus.FLYING) {
+          setPaused(false);
+      }
   }, [status]);
 
   // Cheat code listener (only on menu screens)
@@ -218,6 +277,9 @@ const App: React.FC = () => {
         userProfile={userProfile}
         paused={paused}
         onCoinEarned={handleCoinEarned}
+        onRingsUpdate={setRingMap}
+        onComboChange={(mult, timeLeft) => setCombo({ mult, timeLeft })}
+        onMilestone={handleMilestone}
       />
 
       {/* UI Overlay Layer */}
@@ -241,11 +303,20 @@ const App: React.FC = () => {
 
          {/* Flight Coins Indicator (Only when flying) */}
          {status === GameStatus.FLYING && (
-             <div className="absolute top-6 left-48 z-50 opacity-90">
+             <div className="absolute top-6 left-48 z-50 opacity-90 flex items-center gap-2 pointer-events-auto">
                  <div className="bg-black/40 backdrop-blur px-3 py-1 rounded-full border border-white/10 flex items-center gap-2">
                      <div className="w-3 h-3 rounded-full bg-amber-400 shadow-[0_0_5px_#fbbf24]"></div>
                      <span className="text-amber-400 font-mono font-bold text-xs">{userProfile.coins}</span>
                  </div>
+                 {/* Combo Multiplier */}
+                 {combo.mult > 1 && (
+                     <div className="bg-black/50 backdrop-blur px-3 py-1 rounded-full border border-amber-400/40 flex items-center gap-2 animate-pulse">
+                         <span className="text-amber-300 font-mono font-black text-xs">×{combo.mult}</span>
+                         <div className="w-12 h-1 bg-slate-800 rounded overflow-hidden">
+                             <div className="h-full bg-amber-400 transition-[width] duration-200" style={{ width: `${(combo.timeLeft / 10) * 100}%` }} />
+                         </div>
+                     </div>
+                 )}
              </div>
          )}
 
@@ -292,7 +363,7 @@ const App: React.FC = () => {
 
                 {/* Right Side Controls & Map */}
                 <div className="absolute bottom-6 right-6 flex flex-col items-end gap-2">
-                    <Minimap position={flightState.position} rotation={flightState.rotation} />
+                    <Minimap position={flightState.position} rotation={flightState.rotation} rings={ringMap} />
                     
                     <div className="flex gap-2 mt-2">
                         <button 
