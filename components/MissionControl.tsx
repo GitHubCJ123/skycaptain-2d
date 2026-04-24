@@ -122,11 +122,25 @@ export const MissionControl: React.FC<MissionControlProps> = ({ onStartMission, 
   };
 
   return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="w-full max-w-5xl bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-8 text-center relative">
-        
-        {/* Top Right Coins */}
-        <div className="absolute top-8 right-8 flex flex-col items-end gap-2">
+    <div className="absolute inset-0 z-50 flex sm:items-center justify-center bg-black/60 backdrop-blur-sm overflow-y-auto overscroll-contain">
+      <div className="w-full sm:max-w-5xl bg-slate-900 sm:border border-slate-700 sm:rounded-2xl shadow-2xl p-4 sm:p-8 text-center relative my-0 sm:my-6 min-h-full sm:min-h-0">
+
+        {/* Mobile Top Bar (coins + hangar inline, no overlap) */}
+        <div className="flex sm:hidden items-center justify-between mb-3 gap-2">
+            <div className="bg-amber-900/30 border border-amber-600/50 px-3 py-1.5 rounded-full flex items-center gap-1.5">
+                <div className="w-3 h-3 rounded-full bg-amber-400 shadow-[0_0_6px_#fbbf24]"></div>
+                <span className="text-amber-400 font-mono font-bold text-xs">{userProfile.coins}</span>
+            </div>
+            <button
+                onClick={onOpenHangar}
+                className="bg-purple-600 active:bg-purple-500 text-white font-bold px-4 py-1.5 rounded-lg shadow-lg shadow-purple-900/50 text-xs"
+            >
+                HANGAR ✈️
+            </button>
+        </div>
+
+        {/* Desktop Top Right Coins */}
+        <div className="hidden sm:flex absolute top-8 right-8 flex-col items-end gap-2">
             <div className="bg-amber-900/30 border border-amber-600/50 px-4 py-2 rounded-full flex items-center gap-2">
                 <div className="w-4 h-4 rounded-full bg-amber-400 shadow-[0_0_8px_#fbbf24]"></div>
                 <span className="text-amber-400 font-mono font-bold">{userProfile.coins} COINS</span>
@@ -139,14 +153,14 @@ export const MissionControl: React.FC<MissionControlProps> = ({ onStartMission, 
             </button>
         </div>
 
-        <h1 className="text-4xl font-bold text-white mb-2 tracking-tight">SkyCaptain <span className="text-sky-400">2D</span></h1>
-        <p className="text-slate-400 mb-4">Flight Simulator</p>
+        <h1 className="text-2xl sm:text-4xl font-bold text-white mb-1 sm:mb-2 tracking-tight">SkyCaptain <span className="text-sky-400">2D</span></h1>
+        <p className="text-slate-400 text-xs sm:text-base mb-3 sm:mb-4">Flight Simulator</p>
 
         {/* Personal Bests */}
         {userProfile.stats && (userProfile.stats.bestDistanceM > 0 || userProfile.stats.totalRings > 0 || userProfile.stats.smoothLandings > 0) && (
-            <div className="max-w-3xl mx-auto mb-6 bg-slate-950/60 border border-slate-800 rounded-xl px-4 py-3">
-                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Personal Bests</div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-left">
+            <div className="max-w-3xl mx-auto mb-4 sm:mb-6 bg-slate-950/60 border border-slate-800 rounded-xl px-3 sm:px-4 py-2 sm:py-3">
+                <div className="text-[9px] sm:text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 sm:mb-2">Personal Bests</div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 text-left">
                     <Stat label="Max Altitude" value={`${Math.round(userProfile.stats.bestAltitudeFt).toLocaleString()} ft`} />
                     <Stat label="Max Speed" value={`${Math.round(userProfile.stats.bestSpeedKt)} kt`} />
                     <Stat label="Max Distance" value={`${(userProfile.stats.bestDistanceM/1000).toFixed(1)} km`} />
@@ -160,11 +174,11 @@ export const MissionControl: React.FC<MissionControlProps> = ({ onStartMission, 
         )}
 
         {/* Settings Bar */}
-        <div className="flex items-center justify-center gap-4 mb-8 bg-slate-800/50 p-2 rounded-full max-w-2xl mx-auto border border-slate-700 flex-wrap">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider pl-2">Settings:</span>
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-2 sm:gap-4 mb-4 sm:mb-8 bg-slate-800/50 p-2 rounded-2xl sm:rounded-full max-w-2xl mx-auto border border-slate-700">
+            <span className="hidden sm:inline text-xs font-bold text-slate-400 uppercase tracking-wider pl-2">Settings:</span>
             <button 
                 onClick={() => setObstaclesEnabled(!obstaclesEnabled)}
-                className={`flex items-center gap-2 px-4 py-1.5 rounded-full border transition-all text-xs font-bold ${obstaclesEnabled ? 'bg-red-900/40 border-red-500 text-red-300' : 'bg-slate-800 border-slate-600 text-slate-500 hover:text-slate-300'}`}
+                className={`flex items-center justify-center gap-2 px-4 py-2 sm:py-1.5 rounded-full border transition-all text-xs font-bold ${obstaclesEnabled ? 'bg-red-900/40 border-red-500 text-red-300' : 'bg-slate-800 border-slate-600 text-slate-500 active:text-slate-300'}`}
             >
                 <div className={`w-2 h-2 rounded-full transition-colors ${obstaclesEnabled ? 'bg-red-500 shadow-[0_0_8px_#ef4444]' : 'bg-slate-600'}`} />
                 OBSTACLES: {obstaclesEnabled ? 'ON' : 'OFF'}
@@ -172,69 +186,75 @@ export const MissionControl: React.FC<MissionControlProps> = ({ onStartMission, 
             <button
                 onClick={() => onUpdateProfile({ ...userProfile, invertPitch: !userProfile.invertPitch })}
                 title="When ON, pulling ↓ raises the nose like a real yoke; ↑ pitches down."
-                className={`flex items-center gap-2 px-4 py-1.5 rounded-full border transition-all text-xs font-bold ${userProfile.invertPitch ? 'bg-sky-900/40 border-sky-500 text-sky-300' : 'bg-slate-800 border-slate-600 text-slate-500 hover:text-slate-300'}`}
+                className={`flex items-center justify-center gap-2 px-4 py-2 sm:py-1.5 rounded-full border transition-all text-xs font-bold ${userProfile.invertPitch ? 'bg-sky-900/40 border-sky-500 text-sky-300' : 'bg-slate-800 border-slate-600 text-slate-500 active:text-slate-300'}`}
             >
                 <div className={`w-2 h-2 rounded-full transition-colors ${userProfile.invertPitch ? 'bg-sky-400 shadow-[0_0_8px_#38bdf8]' : 'bg-slate-600'}`} />
                 INVERT PITCH: {userProfile.invertPitch ? 'ON' : 'OFF'}
             </button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-slate-800 p-6 rounded-xl border border-slate-700 hover:border-sky-500 transition-all group flex flex-col justify-between">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4">
+            <div className="bg-slate-800 p-3 sm:p-6 rounded-xl border border-slate-700 hover:border-sky-500 transition-all group flex flex-col justify-between">
                 <div>
-                    <h3 className="text-white font-bold text-xl mb-2">Free Flight</h3>
-                    <p className="text-slate-400 text-sm mb-4">Start on the runway. Perfect weather. Practice your basics.</p>
+                    <h3 className="text-white font-bold text-sm sm:text-xl mb-1 sm:mb-2">Free Flight</h3>
+                    <p className="hidden sm:block text-slate-400 text-sm mb-4">Start on the runway. Perfect weather. Practice your basics.</p>
                 </div>
                 <button
                     onClick={handleStartFree}
-                    className="w-full bg-sky-600 group-hover:bg-sky-500 text-white font-bold py-3 px-6 rounded-lg transition-colors shadow-lg"
+                    className="w-full bg-sky-600 group-hover:bg-sky-500 active:bg-sky-500 text-white font-bold py-2 sm:py-3 px-3 sm:px-6 rounded-lg transition-colors shadow-lg text-xs sm:text-base"
                 >
                     DAY FLIGHT
                 </button>
             </div>
 
-            <div className="bg-slate-800 p-6 rounded-xl border border-slate-700 hover:border-sky-500 transition-all group flex flex-col justify-between">
+            <div className="bg-slate-800 p-3 sm:p-6 rounded-xl border border-slate-700 hover:border-sky-500 transition-all group flex flex-col justify-between">
                 <div>
-                    <h3 className="text-white font-bold text-xl mb-2">Landing Practice</h3>
-                    <p className="text-slate-400 text-sm mb-4">Mid-air start. Line up and touchdown safely.</p>
+                    <h3 className="text-white font-bold text-sm sm:text-xl mb-1 sm:mb-2">Landing</h3>
+                    <p className="hidden sm:block text-slate-400 text-sm mb-4">Mid-air start. Line up and touchdown safely.</p>
                 </div>
                 <button
                     onClick={handleStartLanding}
-                    className="w-full bg-emerald-700 group-hover:bg-emerald-600 text-white font-bold py-3 px-6 rounded-lg transition-colors shadow-lg"
+                    className="w-full bg-emerald-700 group-hover:bg-emerald-600 active:bg-emerald-600 text-white font-bold py-2 sm:py-3 px-3 sm:px-6 rounded-lg transition-colors shadow-lg text-xs sm:text-base"
                 >
                     APPROACH
                 </button>
             </div>
 
-            <div className="bg-slate-800 p-6 rounded-xl border border-slate-700 hover:border-indigo-500 transition-all group flex flex-col justify-between">
+            <div className="bg-slate-800 p-3 sm:p-6 rounded-xl border border-slate-700 hover:border-indigo-500 transition-all group flex flex-col justify-between">
                 <div>
-                    <h3 className="text-indigo-200 font-bold text-xl mb-2">Night Ops</h3>
-                    <p className="text-slate-400 text-sm mb-4">Visual flight rules at night. Rely on runway lighting.</p>
+                    <h3 className="text-indigo-200 font-bold text-sm sm:text-xl mb-1 sm:mb-2">Night Ops</h3>
+                    <p className="hidden sm:block text-slate-400 text-sm mb-4">Visual flight rules at night. Rely on runway lighting.</p>
                 </div>
                 <button
                     onClick={handleStartNight}
-                    className="w-full bg-indigo-900 group-hover:bg-indigo-800 text-white font-bold py-3 px-6 rounded-lg transition-colors shadow-lg border border-indigo-700"
+                    className="w-full bg-indigo-900 group-hover:bg-indigo-800 active:bg-indigo-800 text-white font-bold py-2 sm:py-3 px-3 sm:px-6 rounded-lg transition-colors shadow-lg border border-indigo-700 text-xs sm:text-base"
                 >
                     NIGHT
                 </button>
             </div>
 
-             <div className="bg-slate-800 p-6 rounded-xl border border-slate-700 hover:border-yellow-500 transition-all group flex flex-col justify-between relative overflow-hidden">
+             <div className="bg-slate-800 p-3 sm:p-6 rounded-xl border border-slate-700 hover:border-yellow-500 transition-all group flex flex-col justify-between relative overflow-hidden">
                 <div className="absolute inset-0 bg-gradient-to-br from-slate-800 to-slate-900 z-0"></div>
                 <div className="relative z-10">
-                    <h3 className="text-yellow-100 font-bold text-xl mb-2">Storm Front</h3>
-                    <p className="text-slate-400 text-sm mb-4">Heavy rain, turbulence, and lightning.</p>
+                    <h3 className="text-yellow-100 font-bold text-sm sm:text-xl mb-1 sm:mb-2">Storm</h3>
+                    <p className="hidden sm:block text-slate-400 text-sm mb-4">Heavy rain, turbulence, and lightning.</p>
                 </div>
                 <button
                     onClick={handleStartStorm}
-                    className="relative z-10 w-full bg-slate-700 group-hover:bg-slate-600 text-white font-bold py-3 px-6 rounded-lg transition-colors shadow-lg border border-slate-500"
+                    className="relative z-10 w-full bg-slate-700 group-hover:bg-slate-600 active:bg-slate-600 text-white font-bold py-2 sm:py-3 px-3 sm:px-6 rounded-lg transition-colors shadow-lg border border-slate-500 text-xs sm:text-base"
                 >
                     STORM
                 </button>
             </div>
         </div>
 
-        <div className="mt-8 pt-6 border-t border-slate-800 text-left text-slate-500 text-xs font-mono space-y-2">
+        {/* Tip line — always visible, compact on mobile */}
+        <p className="mt-4 text-[11px] sm:text-xs text-amber-400 font-mono">
+            Gold rings = coins. <span className="text-cyan-300">Cyan ⚡ rings = thrust boost!</span>
+        </p>
+
+        {/* Keyboard commands — desktop only */}
+        <div className="hidden sm:block mt-6 pt-6 border-t border-slate-800 text-left text-slate-500 text-xs font-mono space-y-2">
             <p className="font-bold text-slate-400">COMMANDS:</p>
             <div className="grid grid-cols-2 gap-x-4 gap-y-1">
               <span>[E] Start/Stop Engine</span>
@@ -244,7 +264,6 @@ export const MissionControl: React.FC<MissionControlProps> = ({ onStartMission, 
               <span>[G] Landing Gear</span>
               <span>[F/V] Flaps</span>
               <span>[P] Pause</span>
-              <span className="text-amber-400">Fly through gold rings to earn coins!</span>
             </div>
         </div>
       </div>

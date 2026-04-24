@@ -16,8 +16,9 @@ interface SimCanvasProps {
   userProfile: UserProfile;
   paused?: boolean;
   onCoinEarned?: (amount: number, label: string, worldPos?: Vector2) => void;
-  onRingsUpdate?: (rings: { x: number; y: number; collected: boolean }[]) => void;
+  onRingsUpdate?: (rings: { x: number; y: number; collected: boolean; kind?: 'normal' | 'boost' }[]) => void;
   onComboChange?: (mult: number, timeLeft: number) => void;
+  onBoostChange?: (timeLeft: number) => void;
   onMilestone?: (event: { type: 'crash' | 'landing' | 'perfectLanding' | 'smoothLanding' | 'ring'; data?: any }) => void;
 }
 
@@ -28,6 +29,7 @@ interface Ring {
     collected: boolean;
     pulse: number;
     value: number;
+    kind: 'normal' | 'boost';
 }
 
 interface Particle {
@@ -154,7 +156,7 @@ const generateCityZones = (): CityZone[] => {
     return zones;
 };
 
-export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, externalControls, userProfile, paused = false, onCoinEarned, onRingsUpdate, onComboChange, onMilestone }) => {
+export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, externalControls, userProfile, paused = false, onCoinEarned, onRingsUpdate, onComboChange, onBoostChange, onMilestone }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const requestRef = useRef<number>(null);
   const stateRef = useRef<FlightState>(JSON.parse(JSON.stringify(INITIAL_STATE)));
@@ -172,6 +174,7 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
   const pendingLandingRef = useRef<{ bonus: number; label: string } | null>(null);
   const pausedRef = useRef<boolean>(false);
   const comboRef = useRef<{ mult: number; lastCollect: number; timer: number }>({ mult: 1, lastCollect: 0, timer: 0 });
+  const boostRef = useRef<number>(0); // seconds of thrust boost remaining
   const crashAnnouncedRef = useRef<boolean>(false);
   const cityZonesRef = useRef<CityZone[]>(generateCityZones());
   
@@ -224,13 +227,16 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
       const yMin = overRunway ? 250 : 60;
       const yMax = overRunway ? 800 : 750;
       const yPos = yMin + rand() * (yMax - yMin);
+      // ~1 in 7 rings is a rare cyan BOOST ring (worth more, grants thrust boost)
+      const isBoost = rand() < 0.14;
       ringsRef.current.push({
         x: xPos,
         y: yPos,
-        radius: 22,
+        radius: isBoost ? 26 : 22,
         collected: false,
         pulse: rand() * Math.PI * 2,
-        value: 5,
+        value: isBoost ? 15 : 5,
+        kind: isBoost ? 'boost' : 'normal',
       });
     }
   };
@@ -245,7 +251,7 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
       }
     }
     if (added) {
-      onRingsUpdate?.(ringsRef.current.map(r => ({ x: r.x, y: r.y, collected: r.collected })));
+      onRingsUpdate?.(ringsRef.current.map(r => ({ x: r.x, y: r.y, collected: r.collected, kind: r.kind })));
     }
   };
 
@@ -331,6 +337,8 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
       wasAirborneRef.current = mission.startingConditions.airborne;
       pendingLandingRef.current = null;
       comboRef.current = { mult: 1, lastCollect: 0, timer: 0 };
+      boostRef.current = 0;
+      onBoostChange?.(0);
       crashAnnouncedRef.current = false;
 
       // Regenerate city zones with fresh building data
@@ -604,11 +612,34 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
     const dragX = -Math.cos(gamma) * dragForceMag;
     const dragY = -Math.sin(gamma) * dragForceMag;
 
-    // Thrust - Apply Engine Upgrade
+    // Thrust - Apply Engine Upgrade (and active Boost ring multiplier)
     const currentThrustPower = engineStats.power;
-    const thrustMag = s.engineOn ? s.throttle * currentThrustPower * (airDensityRatio * 0.8 + 0.2) : 0;
+    const boostMul = boostRef.current > 0 ? 1.6 : 1.0;
+    const thrustMag = s.engineOn ? s.throttle * currentThrustPower * (airDensityRatio * 0.8 + 0.2) * boostMul : 0;
     const thrustX = Math.cos(s.rotation) * thrustMag;
     const thrustY = Math.sin(s.rotation) * thrustMag;
+
+    // Decay boost timer
+    if (boostRef.current > 0) {
+        boostRef.current = Math.max(0, boostRef.current - dt);
+        onBoostChange?.(boostRef.current);
+        // Cyan exhaust sparks while boost active
+        if (s.engineOn && Math.random() < 0.7) {
+            const cosR = Math.cos(s.rotation);
+            const sinR = Math.sin(s.rotation);
+            const engX = s.position.x + (cosR * 2.5 - sinR * 0.2);
+            const engY = s.position.y + (sinR * 2.5 + cosR * 0.2);
+            particlesRef.current.push({
+                x: engX, y: engY,
+                vx: -cosR * 6 + (Math.random() - 0.5) * 2,
+                vy: -sinR * 6 + (Math.random() - 0.5) * 2,
+                life: 0.6, maxLife: 0.6,
+                size: 2 + Math.random() * 2,
+                color: 'rgba(34, 211, 238, 0.95)',
+                type: 'spark',
+            });
+        }
+    }
 
     // Engine Smoke
     if (s.engineOn) {
@@ -690,7 +721,7 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
         const px = s.position.x;
         const py = s.position.y;
         const now = performance.now() / 1000;
-        const COMBO_WINDOW = 10.0; // seconds to chain rings
+        const COMBO_WINDOW = 10.0; // seconds to chain rings (10s exactly)
         // Decay combo if window expired
         if (comboRef.current.mult > 1 && (now - comboRef.current.lastCollect) > COMBO_WINDOW) {
             comboRef.current.mult = 1;
@@ -707,7 +738,8 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
             const dy = py - ring.y;
             if (dx*dx + dy*dy < (ring.radius + 3) * (ring.radius + 3)) {
                 ring.collected = true;
-                // Update combo
+                const isBoost = ring.kind === 'boost';
+                // Update combo (both ring kinds chain)
                 if (now - comboRef.current.lastCollect <= COMBO_WINDOW) {
                     comboRef.current.mult = Math.min(comboRef.current.mult + 1, 10);
                 } else {
@@ -718,10 +750,18 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
                 const mult = comboRef.current.mult;
                 const earned = ring.value * mult;
 
+                // Boost ring: grant 5s thrust boost
+                if (isBoost) {
+                    boostRef.current = Math.max(boostRef.current, 5.0);
+                    onBoostChange?.(boostRef.current);
+                }
+
                 // Burst of celebratory sparks
-                for (let i = 0; i < 18; i++) {
-                    const angle = (i / 18) * Math.PI * 2;
-                    const speed = 6 + Math.random() * 4;
+                const burstColor = isBoost ? 'rgba(34, 211, 238, 1)' : 'rgba(251, 191, 36, 1)';
+                const burstCount = isBoost ? 28 : 18;
+                for (let i = 0; i < burstCount; i++) {
+                    const angle = (i / burstCount) * Math.PI * 2;
+                    const speed = 6 + Math.random() * (isBoost ? 7 : 4);
                     particlesRef.current.push({
                         x: ring.x,
                         y: ring.y,
@@ -730,15 +770,20 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
                         life: 1.0,
                         maxLife: 1.0,
                         size: 2 + Math.random() * 2,
-                        color: `rgba(251, 191, 36, 1)`,
+                        color: burstColor,
                         type: 'spark',
                     });
                 }
-                const label = mult > 1 ? `+${earned} RING ×${mult}` : `+${earned} RING`;
+                let label: string;
+                if (isBoost) {
+                    label = mult > 1 ? `+${earned} BOOST ×${mult}` : `+${earned} BOOST!`;
+                } else {
+                    label = mult > 1 ? `+${earned} RING ×${mult}` : `+${earned} RING`;
+                }
                 onCoinEarned?.(earned, label, { x: ring.x, y: ring.y });
                 onComboChange?.(mult, COMBO_WINDOW);
                 onMilestone?.({ type: 'ring', data: { mult } });
-                onRingsUpdate?.(ringsRef.current.map(r => ({ x: r.x, y: r.y, collected: r.collected })));
+                onRingsUpdate?.(ringsRef.current.map(r => ({ x: r.x, y: r.y, collected: r.collected, kind: r.kind })));
             }
         }
     }
@@ -910,33 +955,52 @@ export const SimCanvas: React.FC<SimCanvasProps> = ({ mission, onUpdateState, ex
           if (screenX < -200 || screenX > ctx.canvas.width + 200) return;
           if (screenY < -200 || screenY > ctx.canvas.height + 200) return;
 
-          const pulse = 1 + Math.sin(time * 3 + ring.pulse) * 0.08;
+          const isBoost = ring.kind === 'boost';
+          const baseColor = isBoost ? '#22d3ee' : '#fbbf24';
+          const innerColor = isBoost ? 'rgba(207, 250, 254, 0.95)' : 'rgba(255, 247, 200, 0.95)';
+          const pulse = 1 + Math.sin(time * (isBoost ? 5 : 3) + ring.pulse) * (isBoost ? 0.14 : 0.08);
           const r = ring.radius * WORLD_SCALE * pulse;
 
           ctx.save();
           // Outer glow
-          ctx.shadowColor = '#fbbf24';
-          ctx.shadowBlur = dark ? 30 : 18;
-          ctx.strokeStyle = '#fbbf24';
-          ctx.lineWidth = 6;
+          ctx.shadowColor = baseColor;
+          ctx.shadowBlur = isBoost ? (dark ? 40 : 26) : (dark ? 30 : 18);
+          ctx.strokeStyle = baseColor;
+          ctx.lineWidth = isBoost ? 7 : 6;
           ctx.beginPath();
           ctx.arc(screenX, screenY, r, 0, Math.PI * 2);
           ctx.stroke();
           // Inner brighter ring
           ctx.shadowBlur = 0;
-          ctx.strokeStyle = 'rgba(255, 247, 200, 0.95)';
+          ctx.strokeStyle = innerColor;
           ctx.lineWidth = 2;
           ctx.beginPath();
           ctx.arc(screenX, screenY, r - 3, 0, Math.PI * 2);
           ctx.stroke();
-          // Rotating shimmer dot
-          const dotAngle = time * 2 + ring.pulse;
+          // Rotating shimmer dot(s)
+          const dotAngle = time * (isBoost ? 3.5 : 2) + ring.pulse;
           ctx.fillStyle = '#fff';
           ctx.shadowColor = '#fff';
           ctx.shadowBlur = 8;
           ctx.beginPath();
           ctx.arc(screenX + Math.cos(dotAngle) * r, screenY + Math.sin(dotAngle) * r, 3, 0, Math.PI * 2);
           ctx.fill();
+          if (isBoost) {
+              // Second counter-rotating dot for boost rings
+              ctx.beginPath();
+              ctx.arc(screenX + Math.cos(-dotAngle + Math.PI) * r, screenY + Math.sin(-dotAngle + Math.PI) * r, 3, 0, Math.PI * 2);
+              ctx.fill();
+              // Lightning-bolt glyph in centre
+              ctx.shadowBlur = 12;
+              ctx.shadowColor = baseColor;
+              ctx.fillStyle = baseColor;
+              ctx.font = `bold ${Math.round(r * 0.9)}px "Inter", sans-serif`;
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'middle';
+              ctx.fillText('⚡', screenX, screenY + 1);
+              ctx.textAlign = 'left';
+              ctx.textBaseline = 'alphabetic';
+          }
           ctx.restore();
       });
   };

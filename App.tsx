@@ -35,8 +35,11 @@ const App: React.FC = () => {
   // Combo state from SimCanvas
   const [combo, setCombo] = useState<{ mult: number; timeLeft: number }>({ mult: 1, timeLeft: 0 });
 
+  // Boost ring timer (seconds remaining)
+  const [boostLeft, setBoostLeft] = useState<number>(0);
+
   // Rings for minimap
-  const [ringMap, setRingMap] = useState<{ x: number; y: number; collected: boolean }[]>([]);
+  const [ringMap, setRingMap] = useState<{ x: number; y: number; collected: boolean; kind?: 'normal' | 'boost' }[]>([]);
 
   // Per-flight session stats
   const flightStartRef = useRef<number>(0);
@@ -47,6 +50,22 @@ const App: React.FC = () => {
 
   // Cheat code state
   const cheatBufferRef = useRef<string>("");
+
+  // Touch device detection (for showing on-screen pitch buttons)
+  const [isTouch, setIsTouch] = useState<boolean>(false);
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mq = window.matchMedia('(pointer: coarse)');
+    const update = () => setIsTouch(mq.matches);
+    update();
+    mq.addEventListener?.('change', update);
+    return () => mq.removeEventListener?.('change', update);
+  }, []);
+
+  // Dispatch synthetic ArrowUp/ArrowDown so SimCanvas's existing key listener picks it up.
+  const sendPitchKey = (key: 'ArrowUp' | 'ArrowDown', down: boolean) => {
+    window.dispatchEvent(new KeyboardEvent(down ? 'keydown' : 'keyup', { key, bubbles: true }));
+  };
 
   // Resolve Max Fuel for UI
   const maxFuel = FUEL_UPGRADES[userProfile.upgrades.fuelLevel || 0].capacity;
@@ -279,12 +298,14 @@ const App: React.FC = () => {
         onCoinEarned={handleCoinEarned}
         onRingsUpdate={setRingMap}
         onComboChange={(mult, timeLeft) => setCombo({ mult, timeLeft })}
+        onBoostChange={setBoostLeft}
         onMilestone={handleMilestone}
       />
 
       {/* UI Overlay Layer */}
-      <div className="absolute inset-0 pointer-events-none">
-         {/* Beta Badge */}
+      <div className="absolute inset-0 pointer-events-none" style={isTouch ? { touchAction: 'none' } : undefined}>
+         {/* Beta Badge (desktop only) */}
+         {!isTouch && (
          <div className="absolute top-6 left-6 z-50 opacity-80 hover:opacity-100 transition-opacity pointer-events-auto">
             <div className="flex flex-col items-start select-none">
                 <h1 className="text-2xl font-black text-white italic tracking-tighter drop-shadow-md">
@@ -300,20 +321,31 @@ const App: React.FC = () => {
                 </div>
             </div>
          </div>
+         )}
 
-         {/* Flight Coins Indicator (Only when flying) */}
-         {status === GameStatus.FLYING && (
+         {/* Flight Coins Indicator (desktop only) */}
+         {!isTouch && status === GameStatus.FLYING && (
              <div className="absolute top-6 left-48 z-50 opacity-90 flex items-center gap-2 pointer-events-auto">
                  <div className="bg-black/40 backdrop-blur px-3 py-1 rounded-full border border-white/10 flex items-center gap-2">
                      <div className="w-3 h-3 rounded-full bg-amber-400 shadow-[0_0_5px_#fbbf24]"></div>
                      <span className="text-amber-400 font-mono font-bold text-xs">{userProfile.coins}</span>
                  </div>
-                 {/* Combo Multiplier */}
+                 {/* Combo Multiplier (STREAK) - only after 2+ in a row */}
                  {combo.mult > 1 && (
                      <div className="bg-black/50 backdrop-blur px-3 py-1 rounded-full border border-amber-400/40 flex items-center gap-2 animate-pulse">
+                         <span className="text-[9px] font-bold font-mono text-amber-200/80 uppercase tracking-widest">Streak</span>
                          <span className="text-amber-300 font-mono font-black text-xs">×{combo.mult}</span>
                          <div className="w-12 h-1 bg-slate-800 rounded overflow-hidden">
                              <div className="h-full bg-amber-400 transition-[width] duration-200" style={{ width: `${(combo.timeLeft / 10) * 100}%` }} />
+                         </div>
+                     </div>
+                 )}
+                 {/* Active Boost timer */}
+                 {boostLeft > 0 && (
+                     <div className="bg-cyan-500/20 backdrop-blur px-3 py-1 rounded-full border border-cyan-400/60 flex items-center gap-2 shadow-[0_0_12px_rgba(34,211,238,0.5)]">
+                         <span className="text-cyan-200 font-mono font-black text-xs">⚡ BOOST</span>
+                         <div className="w-14 h-1 bg-slate-800 rounded overflow-hidden">
+                             <div className="h-full bg-cyan-300 transition-[width] duration-100" style={{ width: `${(boostLeft / 5) * 100}%` }} />
                          </div>
                      </div>
                  )}
@@ -334,8 +366,8 @@ const App: React.FC = () => {
              </div>
          )}
 
-         {/* Top Info Bar */}
-         {mission && status === GameStatus.FLYING && (
+         {/* Top Info Bar (desktop only) */}
+         {!isTouch && mission && status === GameStatus.FLYING && (
              <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-black/50 backdrop-blur px-6 py-2 rounded-full border border-white/10 text-center">
                 <h2 className="text-white font-bold text-sm">{mission.title}</h2>
                 <div className="flex gap-4 text-xs text-slate-300 mt-1">
@@ -345,16 +377,45 @@ const App: React.FC = () => {
              </div>
          )}
 
-         {/* Smart Tip Box */}
-         {status === GameStatus.FLYING && !flightState.crashed && (
+         {/* Smart Tip Box (desktop only) */}
+         {!isTouch && status === GameStatus.FLYING && !flightState.crashed && (
              <div className="absolute top-20 right-8 max-w-xs bg-slate-800/80 backdrop-blur border-l-4 border-sky-500 p-3 rounded shadow-lg transition-opacity duration-500">
                  <p className="text-sky-100 text-xs font-semibold font-mono animate-pulse">FLIGHT ASSIST</p>
                  <p className="text-white text-sm font-medium mt-1 leading-tight">{currentTip}</p>
              </div>
          )}
          
-         {/* Bottom Control Deck */}
-         {status === GameStatus.FLYING && (
+         {/* Touch Pitch Controls (mobile / tablet) -- DEPRECATED, replaced by mobile HUD below; kept disabled */}
+         {false && status === GameStatus.FLYING && isTouch && !flightState.crashed && !paused && (
+             <div className="absolute left-4 bottom-44 z-40 flex flex-col gap-3 pointer-events-auto select-none">
+                 <button
+                     aria-label="Pitch up"
+                     onPointerDown={(e) => { e.preventDefault(); (e.currentTarget as HTMLButtonElement).setPointerCapture(e.pointerId); sendPitchKey('ArrowUp', true); }}
+                     onPointerUp={(e) => { sendPitchKey('ArrowUp', false); }}
+                     onPointerCancel={() => sendPitchKey('ArrowUp', false)}
+                     onPointerLeave={() => sendPitchKey('ArrowUp', false)}
+                     onContextMenu={(e) => e.preventDefault()}
+                     className="w-20 h-20 rounded-full bg-sky-600/80 border-2 border-sky-300 text-white text-3xl font-black shadow-[0_0_20px_rgba(14,165,233,0.5)] active:bg-sky-500 active:scale-95 transition-transform touch-none"
+                 >
+                     ▲
+                 </button>
+                 <button
+                     aria-label="Pitch down"
+                     onPointerDown={(e) => { e.preventDefault(); (e.currentTarget as HTMLButtonElement).setPointerCapture(e.pointerId); sendPitchKey('ArrowDown', true); }}
+                     onPointerUp={(e) => { sendPitchKey('ArrowDown', false); }}
+                     onPointerCancel={() => sendPitchKey('ArrowDown', false)}
+                     onPointerLeave={() => sendPitchKey('ArrowDown', false)}
+                     onContextMenu={(e) => e.preventDefault()}
+                     className="w-20 h-20 rounded-full bg-sky-600/80 border-2 border-sky-300 text-white text-3xl font-black shadow-[0_0_20px_rgba(14,165,233,0.5)] active:bg-sky-500 active:scale-95 transition-transform touch-none"
+                 >
+                     ▼
+                 </button>
+                 <span className="text-[9px] font-mono text-sky-200/70 text-center tracking-widest">PITCH</span>
+             </div>
+         )}
+
+         {/* Bottom Control Deck (desktop only) */}
+         {!isTouch && status === GameStatus.FLYING && (
              <div className="absolute bottom-0 left-0 w-full flex items-end justify-between pointer-events-auto">
                 {/* Instruments Dashboard (Centered mostly) */}
                 <div className="flex-1 flex justify-center pb-0">
@@ -386,6 +447,178 @@ const App: React.FC = () => {
                         />
                     </div>
                 </div>
+             </div>
+         )}
+
+         {/* ===================== MOBILE HUD (touch only) ===================== */}
+         {isTouch && status === GameStatus.FLYING && (
+             <div className="absolute inset-0 pointer-events-none select-none" style={{ touchAction: 'none' }}>
+                 {/* Top strip: coin + streak/boost (left) and abort (right) */}
+                 <div className="absolute top-2 left-2 right-2 flex items-center justify-between gap-2 pointer-events-auto">
+                     <div className="flex items-center gap-1.5 flex-wrap">
+                         <div className="bg-black/55 backdrop-blur px-2.5 py-1 rounded-full border border-white/10 flex items-center gap-1.5">
+                             <div className="w-2.5 h-2.5 rounded-full bg-amber-400 shadow-[0_0_5px_#fbbf24]"></div>
+                             <span className="text-amber-400 font-mono font-bold text-[11px]">{userProfile.coins}</span>
+                         </div>
+                         {combo.mult > 1 && (
+                             <div className="bg-black/55 backdrop-blur px-2 py-1 rounded-full border border-amber-400/40 flex items-center gap-1.5">
+                                 <span className="text-amber-300 font-mono font-black text-[11px]">×{combo.mult}</span>
+                                 <div className="w-8 h-1 bg-slate-800 rounded overflow-hidden">
+                                     <div className="h-full bg-amber-400" style={{ width: `${(combo.timeLeft / 10) * 100}%` }} />
+                                 </div>
+                             </div>
+                         )}
+                         {boostLeft > 0 && (
+                             <div className="bg-cyan-500/25 backdrop-blur px-2 py-1 rounded-full border border-cyan-400/60 flex items-center gap-1.5 shadow-[0_0_10px_rgba(34,211,238,0.5)]">
+                                 <span className="text-cyan-200 font-mono font-black text-[11px]">⚡</span>
+                                 <div className="w-8 h-1 bg-slate-900 rounded overflow-hidden">
+                                     <div className="h-full bg-cyan-300" style={{ width: `${(boostLeft / 5) * 100}%` }} />
+                                 </div>
+                             </div>
+                         )}
+                     </div>
+                     <div className="flex items-center gap-1.5">
+                         <button
+                             onClick={() => setPaused(p => !p)}
+                             className="w-9 h-9 rounded-full bg-slate-900/80 border border-slate-600 text-white text-sm font-bold active:bg-slate-800"
+                             aria-label="Pause"
+                         >
+                             {paused ? '▶' : '❚❚'}
+                         </button>
+                         <button
+                             onClick={() => setStatus(GameStatus.MENU)}
+                             className="w-9 h-9 rounded-full bg-red-600/90 border border-red-300 text-white text-sm font-black active:bg-red-500"
+                             aria-label="Abort flight"
+                         >
+                             ✕
+                         </button>
+                     </div>
+                 </div>
+
+                 {/* Compact instrument strip */}
+                 <div className="absolute top-12 left-2 right-2 flex items-center justify-center pointer-events-none">
+                     <div className="bg-black/55 backdrop-blur px-3 py-1 rounded-lg border border-white/10 flex items-center gap-3 font-mono text-[10px]">
+                         <div><span className="text-slate-400">SPD </span><span className={`font-bold ${flightState.stallWarning ? 'text-red-400 animate-pulse' : 'text-white'}`}>{Math.round(Math.sqrt(flightState.velocity.x**2 + flightState.velocity.y**2) * 1.94384)}</span><span className="text-slate-500">kt</span></div>
+                         <div className="text-slate-700">|</div>
+                         <div><span className="text-slate-400">ALT </span><span className="text-white font-bold">{Math.round(flightState.position.y * 3.28084)}</span><span className="text-slate-500">ft</span></div>
+                         <div className="text-slate-700">|</div>
+                         <div>
+                             <span className="text-slate-400">FUEL </span>
+                             <span className={`font-bold ${(flightState.fuel / maxFuel) < 0.2 ? 'text-red-400 animate-pulse' : 'text-white'}`}>{Math.round((flightState.fuel / maxFuel) * 100)}</span>
+                             <span className="text-slate-500">%</span>
+                         </div>
+                     </div>
+                 </div>
+
+                 {/* Stall warning banner */}
+                 {flightState.stallWarning && !flightState.crashed && (
+                     <div className="absolute top-24 left-1/2 -translate-x-1/2 bg-red-600/90 border border-red-300 px-3 py-1 rounded-full text-white text-[11px] font-black tracking-widest animate-pulse pointer-events-none">
+                         ⚠ STALL — NOSE DOWN
+                     </div>
+                 )}
+
+                 {/* Tiny minimap (top-right under abort) */}
+                 <div className="absolute top-14 right-2 pointer-events-auto scale-75 origin-top-right">
+                     <Minimap position={flightState.position} rotation={flightState.rotation} rings={ringMap} />
+                 </div>
+
+                 {/* LEFT THUMB ZONE — vertical throttle + engine + flaps */}
+                 <div className="absolute left-3 bottom-4 flex items-end gap-2 pointer-events-auto">
+                     {/* Vertical throttle */}
+                     <div className="flex flex-col items-center gap-1.5">
+                         <div className="text-[9px] font-mono text-amber-300 font-bold">{Math.round(throttle * 100)}%</div>
+                         <div className="relative w-9 h-44 bg-slate-900/80 rounded-full border border-slate-600 overflow-hidden touch-none"
+                             onPointerDown={(e) => {
+                                 e.preventDefault();
+                                 (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+                                 const setFromY = (clientY: number) => {
+                                     const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+                                     const v = 1 - (clientY - rect.top) / rect.height;
+                                     setThrottle(Math.max(0, Math.min(1, v)));
+                                 };
+                                 setFromY(e.clientY);
+                                 const move = (ev: PointerEvent) => setFromY(ev.clientY);
+                                 const up = () => {
+                                     window.removeEventListener('pointermove', move);
+                                     window.removeEventListener('pointerup', up);
+                                     window.removeEventListener('pointercancel', up);
+                                 };
+                                 window.addEventListener('pointermove', move);
+                                 window.addEventListener('pointerup', up);
+                                 window.addEventListener('pointercancel', up);
+                             }}
+                         >
+                             <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-amber-500 to-amber-300 transition-[height] duration-75" style={{ height: `${throttle * 100}%` }} />
+                             <div className="absolute inset-0 flex items-center justify-center text-[8px] font-mono font-bold text-white/80 rotate-180" style={{ writingMode: 'vertical-rl' as const }}>THROTTLE</div>
+                         </div>
+                     </div>
+                     {/* Engine + Flaps stack */}
+                     <div className="flex flex-col gap-1.5">
+                         <button
+                             onClick={() => setEngineOn(prev => !prev)}
+                             className={`w-14 h-12 rounded-lg border text-[10px] font-black tracking-wider leading-tight whitespace-pre-line ${engineOn ? 'bg-green-600/80 border-green-300 text-white' : 'bg-red-900/60 border-red-700 text-red-300'} active:scale-95 transition-transform`}
+                         >
+                             {engineOn ? 'ENG\nON' : 'ENG\nOFF'}
+                         </button>
+                         <button
+                             onClick={() => setFlaps(prev => Math.min(prev + 0.25, 1))}
+                             className="w-14 h-9 rounded-lg bg-sky-700/70 border border-sky-400 text-white text-[10px] font-black active:scale-95 transition-transform"
+                         >
+                             FLAPS+
+                         </button>
+                         <button
+                             onClick={() => setFlaps(prev => Math.max(prev - 0.25, 0))}
+                             className="w-14 h-9 rounded-lg bg-slate-800/80 border border-slate-500 text-slate-200 text-[10px] font-black active:scale-95 transition-transform"
+                         >
+                             FLAPS−
+                         </button>
+                         <div className="text-center text-[9px] font-mono text-sky-300">{Math.round(flaps * 100)}%</div>
+                     </div>
+                 </div>
+
+                 {/* RIGHT THUMB ZONE — pitch + gear + brakes */}
+                 <div className="absolute right-3 bottom-4 flex items-end gap-2 pointer-events-auto">
+                     {/* Gear / Brakes stack */}
+                     <div className="flex flex-col gap-1.5 mb-1">
+                         <button
+                             onClick={() => setGear(g => !g)}
+                             className={`w-14 h-12 rounded-lg border text-[10px] font-black tracking-wider leading-tight whitespace-pre-line ${gear ? 'bg-emerald-700/70 border-emerald-300 text-white' : 'bg-slate-800/80 border-slate-600 text-slate-400'} active:scale-95 transition-transform`}
+                         >
+                             {gear ? 'GEAR\nDOWN' : 'GEAR\nUP'}
+                         </button>
+                         <button
+                             onClick={() => setBrakes(b => !b)}
+                             className={`w-14 h-12 rounded-lg border text-[10px] font-black tracking-wider leading-tight whitespace-pre-line ${brakes ? 'bg-red-800/70 border-red-400 text-white' : 'bg-slate-800/80 border-slate-600 text-slate-400'} active:scale-95 transition-transform`}
+                         >
+                             {brakes ? 'BRK\nON' : 'BRK\nOFF'}
+                         </button>
+                     </div>
+                     {/* Pitch buttons */}
+                     <div className="flex flex-col gap-2 items-center">
+                         <button
+                             aria-label="Pitch up"
+                             onPointerDown={(e) => { e.preventDefault(); (e.currentTarget as HTMLButtonElement).setPointerCapture(e.pointerId); sendPitchKey('ArrowUp', true); }}
+                             onPointerUp={() => sendPitchKey('ArrowUp', false)}
+                             onPointerCancel={() => sendPitchKey('ArrowUp', false)}
+                             onLostPointerCapture={() => sendPitchKey('ArrowUp', false)}
+                             onContextMenu={(e) => e.preventDefault()}
+                             className="w-20 h-20 rounded-full bg-sky-600/85 border-2 border-sky-300 text-white text-3xl font-black shadow-[0_0_18px_rgba(14,165,233,0.5)] active:bg-sky-500 active:scale-95 transition-transform touch-none"
+                         >
+                             ▲
+                         </button>
+                         <button
+                             aria-label="Pitch down"
+                             onPointerDown={(e) => { e.preventDefault(); (e.currentTarget as HTMLButtonElement).setPointerCapture(e.pointerId); sendPitchKey('ArrowDown', true); }}
+                             onPointerUp={() => sendPitchKey('ArrowDown', false)}
+                             onPointerCancel={() => sendPitchKey('ArrowDown', false)}
+                             onLostPointerCapture={() => sendPitchKey('ArrowDown', false)}
+                             onContextMenu={(e) => e.preventDefault()}
+                             className="w-20 h-20 rounded-full bg-sky-600/85 border-2 border-sky-300 text-white text-3xl font-black shadow-[0_0_18px_rgba(14,165,233,0.5)] active:bg-sky-500 active:scale-95 transition-transform touch-none"
+                         >
+                             ▼
+                         </button>
+                     </div>
+                 </div>
              </div>
          )}
       </div>

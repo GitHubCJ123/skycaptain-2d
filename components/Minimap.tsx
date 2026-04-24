@@ -5,7 +5,7 @@ import { RUNWAY_START_X, RUNWAY_LENGTH } from '../constants';
 interface MinimapProps {
   position: Vector2;
   rotation: number;
-  rings?: { x: number; y: number; collected: boolean }[];
+  rings?: { x: number; y: number; collected: boolean; kind?: 'normal' | 'boost' }[];
 }
 
 export const Minimap: React.FC<MinimapProps> = ({ position, rotation, rings = [] }) => {
@@ -69,13 +69,20 @@ export const Minimap: React.FC<MinimapProps> = ({ position, rotation, rings = []
       {/* Rings */}
       {rings.filter(r => !r.collected).map((r, i) => {
         const p = project(r.x, r.y);
+        const isBoost = r.kind === 'boost';
+        const dotClass = isBoost
+          ? 'absolute w-2 h-2 rounded-full bg-cyan-300 shadow-[0_0_6px_#22d3ee]'
+          : 'absolute w-1.5 h-1.5 rounded-full bg-amber-300 shadow-[0_0_4px_#fbbf24]';
+        const offDotClass = isBoost
+          ? 'absolute w-1 h-1 rounded-sm bg-cyan-400/80'
+          : 'absolute w-1 h-1 rounded-sm bg-amber-500/70';
         const onMap = p.x >= 2 && p.x <= MAP_WIDTH - 2 && p.y >= 2 && p.y <= MAP_HEIGHT - 2;
         if (onMap) {
           return (
             <div
               key={i}
-              className="absolute w-1.5 h-1.5 rounded-full bg-amber-300 shadow-[0_0_4px_#fbbf24]"
-              style={{ top: p.y - 3, left: p.x - 3 }}
+              className={dotClass}
+              style={{ top: p.y - (isBoost ? 4 : 3), left: p.x - (isBoost ? 4 : 3) }}
             />
           );
         }
@@ -84,7 +91,7 @@ export const Minimap: React.FC<MinimapProps> = ({ position, rotation, rings = []
         return (
           <div
             key={i}
-            className="absolute w-1 h-1 rounded-sm bg-amber-500/70"
+            className={offDotClass}
             style={{ top: cy - 2, left: cx - 2 }}
           />
         );

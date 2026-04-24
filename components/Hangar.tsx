@@ -150,26 +150,26 @@ export const Hangar: React.FC<HangarProps> = ({ userProfile, onUpdateProfile, on
 
     return (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md">
-            <div className="w-full max-w-5xl h-[85vh] bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+            <div className="w-full sm:max-w-5xl h-full sm:h-[85vh] bg-slate-900 sm:border border-slate-700 sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden">
                 {/* Header */}
-                <div className="flex items-center justify-between p-6 bg-slate-950 border-b border-slate-800">
-                    <div>
-                        <h1 className="text-3xl font-black text-white italic tracking-tighter">THE HANGAR</h1>
-                        <p className="text-slate-400 text-sm">Upgrade and Customize your Aircraft</p>
+                <div className="flex items-center justify-between p-3 sm:p-6 bg-slate-950 border-b border-slate-800 gap-2">
+                    <div className="min-w-0">
+                        <h1 className="text-lg sm:text-3xl font-black text-white italic tracking-tighter truncate">THE HANGAR</h1>
+                        <p className="hidden sm:block text-slate-400 text-sm">Upgrade and Customize your Aircraft</p>
                     </div>
-                    <div className="flex items-center gap-4">
-                        <div className="bg-amber-900/30 border border-amber-600/50 px-4 py-2 rounded-full flex items-center gap-2">
-                             <div className="w-4 h-4 rounded-full bg-amber-400 shadow-[0_0_8px_#fbbf24]"></div>
-                             <span className="text-amber-400 font-mono font-bold">{userProfile.coins} COINS</span>
+                    <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
+                        <div className="bg-amber-900/30 border border-amber-600/50 px-2 sm:px-4 py-1 sm:py-2 rounded-full flex items-center gap-1.5 sm:gap-2">
+                             <div className="w-3 h-3 sm:w-4 sm:h-4 rounded-full bg-amber-400 shadow-[0_0_8px_#fbbf24]"></div>
+                             <span className="text-amber-400 font-mono font-bold text-xs sm:text-base">{userProfile.coins}<span className="hidden sm:inline"> COINS</span></span>
                         </div>
-                        <button onClick={onClose} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded font-bold transition-colors">
+                        <button onClick={onClose} className="px-3 sm:px-4 py-1.5 sm:py-2 bg-slate-800 active:bg-slate-700 text-white rounded font-bold transition-colors text-xs sm:text-base">
                             EXIT
                         </button>
                     </div>
                 </div>
 
                 {/* Info Note */}
-                <div className="bg-sky-900/20 border-b border-sky-500/20 px-6 py-2 flex items-center gap-2 text-xs text-sky-300">
+                <div className="hidden sm:flex bg-sky-900/20 border-b border-sky-500/20 px-6 py-2 items-center gap-2 text-xs text-sky-300">
                     <span className="font-bold bg-sky-500/20 px-2 py-0.5 rounded text-sky-200">INFO</span>
                     <span>Earn coins by keeping your aircraft airborne. <span className="text-slate-400">Higher flight time = More revenue.</span></span>
                 </div>
@@ -178,20 +178,20 @@ export const Hangar: React.FC<HangarProps> = ({ userProfile, onUpdateProfile, on
                 <div className="flex border-b border-slate-800">
                     <button 
                         onClick={() => setActiveTab('performance')}
-                        className={`flex-1 py-4 font-bold tracking-wider transition-colors ${activeTab === 'performance' ? 'bg-slate-800 text-sky-400 border-b-2 border-sky-400' : 'text-slate-500 hover:text-slate-300'}`}
+                        className={`flex-1 py-3 sm:py-4 font-bold tracking-wider transition-colors text-xs sm:text-base ${activeTab === 'performance' ? 'bg-slate-800 text-sky-400 border-b-2 border-sky-400' : 'text-slate-500 active:text-slate-300'}`}
                     >
                         PERFORMANCE
                     </button>
                     <button 
                          onClick={() => setActiveTab('cosmetics')}
-                         className={`flex-1 py-4 font-bold tracking-wider transition-colors ${activeTab === 'cosmetics' ? 'bg-slate-800 text-purple-400 border-b-2 border-purple-400' : 'text-slate-500 hover:text-slate-300'}`}
+                         className={`flex-1 py-3 sm:py-4 font-bold tracking-wider transition-colors text-xs sm:text-base ${activeTab === 'cosmetics' ? 'bg-slate-800 text-purple-400 border-b-2 border-purple-400' : 'text-slate-500 active:text-slate-300'}`}
                     >
                         VISUALS
                     </button>
                 </div>
 
                 {/* Content */}
-                <div className="flex-1 overflow-y-auto p-8">
+                <div className="flex-1 overflow-y-auto overscroll-contain p-3 sm:p-8">
                     {activeTab === 'performance' && (
                         <div className="space-y-8">
                             {/* Engine Section */}
